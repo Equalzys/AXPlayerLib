@@ -130,7 +130,9 @@ for ABI in "${TARGETS[@]}"; do
 
     cd "$SRC_DIR"
     [ -f Makefile ] && make distclean || true
-    [ -f configure ] || ./autogen.sh
+    if [ ! -f configure ]; then
+      NOCONFIGURE=1 ./autogen.sh
+    fi
 
     ./configure \
         --host="$HOST" \
@@ -138,10 +140,10 @@ for ABI in "${TARGETS[@]}"; do
         --enable-static \
         --disable-shared \
         --with-pic \
-        --with-freetype-config="pkg-config freetype2" \
         --with-expat="$EXPAT_PREFIX" \
         --with-zlib="$ZLIB_PREFIX" \
         --with-libiconv="$LIBICONV_PREFIX" \
+        --disable-docs \
         LIBS="-lz" \
         CC="$CC"
 
