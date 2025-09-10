@@ -140,7 +140,7 @@ for ABI in "${ARCHS[@]}"; do
         --disable-cli \
         --disable-asm \
         --enable-pic \
-        --extra-cflags="-fPIC $OPTIMIZE_CFLAGS -D__ANDROID_API__=21 -DANDROID" \
+        --extra-cflags="-fPIC $OPTIMIZE_CFLAGS -D__ANDROID_API__=$ANDROID_API -DANDROID" \
 
     make -j$JOBS
     make install
