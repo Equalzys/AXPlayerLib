@@ -9,7 +9,7 @@ else
     export LIBTOOLIZE=$(which libtoolize)
 fi
 
-ANDROID_API=24
+ANDROID_API=23
 AXPLAYER_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC_BASENAME="fontconfig"
 BUILD_BASE="$AXPLAYER_ROOT/android/build/fontconfig"

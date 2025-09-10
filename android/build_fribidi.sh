@@ -16,7 +16,7 @@ TOOLCHAIN="${TOOLCHAIN//[$'\r\n']}"
 SRC_BASENAME="fribidi"
 SRC_BASE="$AXPLAYER_ROOT/android"
 BUILD_BASE="$AXPLAYER_ROOT/android/build/fribidi"
-ANDROID_API=24
+ANDROID_API=23
 ARCHS=("arm64-v8a" "armeabi-v7a")
 TARGETS=()
 

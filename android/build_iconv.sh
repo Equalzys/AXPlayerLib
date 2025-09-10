@@ -23,7 +23,7 @@ if [ ! -d "$TOOLCHAIN" ]; then
     exit 1
 fi
 
-ANDROID_API=24
+ANDROID_API=23
 SRC_DIR="$AXPLAYER_ROOT/extra/libiconv"
 BUILD_BASE="$AXPLAYER_ROOT/android/build/libiconv"
 ARCHS=("arm64-v8a" "armeabi-v7a")

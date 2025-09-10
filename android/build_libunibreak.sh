@@ -1,7 +1,7 @@
 ##!/bin/bash
 #set -e
 #
-#ANDROID_API=24
+#ANDROID_API=23
 #AXPLAYER_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 #SRC_BASENAME="libunibreak"
 #SRC_DIR="$AXPLAYER_ROOT/extra/$SRC_BASENAME"
@@ -126,7 +126,7 @@
 #!/bin/bash
 set -e
 
-ANDROID_API=24
+ANDROID_API=23
 AXPLAYER_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC_BASENAME="libunibreak"
 BUILD_BASE="$AXPLAYER_ROOT/android/build/libunibreak"
