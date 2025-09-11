@@ -248,6 +248,8 @@ for ABI in "${TARGETS[@]}"; do
   add_if_exist "$DAV1D_PREFIX/lib/libdav1d.a"
   add_if_exist "$EXPAT_PREFIX/lib/libexpat.a"
   add_if_exist "$LIBUNIBREAK_PREFIX/lib/libunibreak.a"
+  add_if_exist "$ICONV_PREFIX/lib/libiconv.a"
+  add_if_exist "$ICONV_PREFIX/lib/libcharset.a"
 
   if [ ${#FF_A[@]} -eq 0 ]; then
     echo "!!! 未找到 FFmpeg .a（检查 $FFLIB）"; exit 1
@@ -273,7 +275,8 @@ for ABI in "${TARGETS[@]}"; do
       "${THIRD_A[@]}" \
     -Wl,--no-whole-archive \
     -llog -landroid -ldl -lmediandk \
-    -lm -lz \
+    -lomp -lm -lz \
+    -static-libstdc++ \
     $EXTRA_LINK_FIX
 
   "$TOOLCHAIN/bin/llvm-strip" --strip-unneeded "$OUT_SO" || true
