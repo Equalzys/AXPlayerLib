@@ -6,16 +6,22 @@ echo ">>> 批量编译全部三方静态库..."
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 LIB_LIST=(
-    build_x264.sh
-    build_libmp3lame.sh
-    build_libass.sh
-    build_freetype2.sh
-    build_fribidi.sh
-    build_harfbuzz.sh
-    build_libiconv.sh
     build_zlib.sh
-    build_libsoxr.sh
+    build_libmp3lame.sh
     build_SoundTouch.sh
+    build_x264.sh
+    build_dav1d.sh
+    build_libsoxr.sh
+    build_openssl.sh
+
+    build_libunibreak.sh
+    build_harfbuzz.sh
+    build_iconv.sh
+    build_expat.sh
+    build_fribidi.sh
+    build_freetype2.sh
+    build_fontconfig.sh
+    build_libass.sh
 )
 
 for script in "${LIB_LIST[@]}"; do
