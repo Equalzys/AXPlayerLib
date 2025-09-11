@@ -259,7 +259,7 @@ for ABI in "${TARGETS[@]}"; do
       "${FF_A[@]}" \
       "${THIRD_A[@]}" \
     -Wl,--no-whole-archive \
-    -llog -landroid -ldl -lm -lmediandk \
+    -llog -landroid -ldl -lmediandk \
     -static-libstdc++ \
     $EXTRA_LINK_FIX
 
