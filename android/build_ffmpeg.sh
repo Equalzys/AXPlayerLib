@@ -96,6 +96,7 @@ for ABI in "${TARGETS[@]}"; do
   LIBUNIBREAK_PREFIX="$THREE_BUILD_BASE/libunibreak/$ABI"
   DAV1D_PREFIX="$THREE_BUILD_BASE/dav1d/$ABI"
   EXPAT_PREFIX="$THREE_BUILD_BASE/expat/$ABI"
+  ICONV_PREFIX="$THREE_BUILD_BASE/libiconv/$ABI"
 
   # 头文件
   EXTRA_CFLAGS=""
@@ -104,7 +105,7 @@ for ABI in "${TARGETS[@]}"; do
     "$FREETYPE_PREFIX/include" "$FRIBIDI_PREFIX/include" "$HARFBUZZ_PREFIX/include" \
     "$ZLIB_PREFIX/include" "$SOXR_PREFIX/include" "$SOUNDTOUCH_PREFIX/include" \
     "$OPENSSL_PREFIX/include" "$EXPAT_PREFIX/include" "$DAV1D_PREFIX/include" \
-    "$LIBUNIBREAK_PREFIX/include"
+    "$LIBUNIBREAK_PREFIX/include" "$ICONV_PREFIX/include"
   do
     [ -d "$inc" ] && EXTRA_CFLAGS="$EXTRA_CFLAGS -I$inc"
   done
@@ -115,7 +116,7 @@ for ABI in "${TARGETS[@]}"; do
     "$X264_PREFIX/lib" "$LAME_PREFIX/lib" "$ASS_PREFIX/lib" "$FREETYPE_PREFIX/lib" \
     "$FRIBIDI_PREFIX/lib" "$HARFBUZZ_PREFIX/lib" "$ZLIB_PREFIX/lib" "$SOXR_PREFIX/lib" \
     "$SOUNDTOUCH_PREFIX/lib" "$OPENSSL_PREFIX/lib" "$EXPAT_PREFIX/lib" "$DAV1D_PREFIX/lib" \
-    "$LIBUNIBREAK_PREFIX/lib"
+    "$LIBUNIBREAK_PREFIX/lib" "$ICONV_PREFIX/lib"
   do
     [ -d "$lib" ] && EXTRA_LDFLAGS="$EXTRA_LDFLAGS -L$lib"
   done
@@ -132,7 +133,7 @@ for ABI in "${TARGETS[@]}"; do
   # 仅使用我们提供的 .pc
   PKGCFG=""
   for d in \
-    "$THREE_BUILD_BASE/libiconv/$ABI/lib/pkgconfig" \   # ★ 新增这一行
+    "$ICONV_PREFIX/lib/pkgconfig" \
     "$OPENSSL_PREFIX/lib/pkgconfig" \
     "$ZLIB_PREFIX/lib/pkgconfig" \
     "$X264_PREFIX/lib/pkgconfig" \
