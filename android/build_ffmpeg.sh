@@ -102,7 +102,7 @@ EXTRA_LDFLAGS=
 
     # 依赖三方库
     X264_PREFIX="$THREE_BUILD_BASE/x264/$ABI"
-#    LAME_PREFIX="$THREE_BUILD_BASE/libmp3lame/$ABI-so"
+    LAME_PREFIX="$THREE_BUILD_BASE/libmp3lame/$ABI"
     ASS_PREFIX="$THREE_BUILD_BASE/libass/$ABI"
     FREETYPE_PREFIX="$THREE_BUILD_BASE/freetype2/$ABI"
     FRIBIDI_PREFIX="$THREE_BUILD_BASE/fribidi/$ABI"
@@ -118,7 +118,7 @@ EXTRA_LDFLAGS=
     EXPAT_PREFIX="$THREE_BUILD_BASE/expat/$ABI"
 
     EXTRA_CFLAGS="$EXTRA_CFLAGS -I$X264_PREFIX/include"
-#    EXTRA_CFLAGS="$EXTRA_CFLAGS -I$LAME_PREFIX/include"
+    EXTRA_CFLAGS="$EXTRA_CFLAGS -I$LAME_PREFIX/include"
     EXTRA_CFLAGS="$EXTRA_CFLAGS -I$ASS_PREFIX/include"
     EXTRA_CFLAGS="$EXTRA_CFLAGS -I$FREETYPE_PREFIX/include"
     EXTRA_CFLAGS="$EXTRA_CFLAGS -I$FRIBIDI_PREFIX/include"
@@ -134,7 +134,7 @@ EXTRA_LDFLAGS=
     EXTRA_CFLAGS="$EXTRA_CFLAGS -I$LIBUNIBREAK_PREFIX/include"
 
     EXTRA_LDFLAGS="$EXTRA_LDFLAGS -L$X264_PREFIX/lib"
-#    EXTRA_LDFLAGS="$EXTRA_LDFLAGS -L$LAME_PREFIX/lib"
+    EXTRA_LDFLAGS="$EXTRA_LDFLAGS -L$LAME_PREFIX/lib"
     EXTRA_LDFLAGS="$EXTRA_LDFLAGS -L$ASS_PREFIX/lib"
     EXTRA_LDFLAGS="$EXTRA_LDFLAGS -L$FREETYPE_PREFIX/lib"
     EXTRA_LDFLAGS="$EXTRA_LDFLAGS -L$FRIBIDI_PREFIX/lib"
@@ -163,7 +163,7 @@ EXTRA_LDFLAGS=
     THREE_CONFIG_PATH="$THREE_CONFIG_PATH$THREE_BUILD_BASE/x264/$ABI/lib/pkgconfig:"
     THREE_CONFIG_PATH="$THREE_CONFIG_PATH$THREE_BUILD_BASE/SoundTouch/$ABI/lib/pkgconfig:"
     THREE_CONFIG_PATH="$THREE_CONFIG_PATH$THREE_BUILD_BASE/libsoxr/$ABI/lib/pkgconfig:"
-#    THREE_CONFIG_PATH="$THREE_CONFIG_PATH$THREE_BUILD_BASE/libmp3lame/$ABI-so/lib/pkgconfig:"
+    THREE_CONFIG_PATH="$THREE_CONFIG_PATH$THREE_BUILD_BASE/libmp3lame/$ABI-so/lib/pkgconfig:"
     THREE_CONFIG_PATH="$THREE_CONFIG_PATH$THREE_BUILD_BASE/freetype2/$ABI/lib/pkgconfig:"
     THREE_CONFIG_PATH="$THREE_CONFIG_PATH$THREE_BUILD_BASE/fribidi/$ABI/lib/pkgconfig:"
     THREE_CONFIG_PATH="$THREE_CONFIG_PATH$THREE_BUILD_BASE/fontconfig/$ABI/lib/pkgconfig:"
@@ -177,48 +177,48 @@ EXTRA_LDFLAGS=
 
     echo "------- PKG_CONFIG_PATH for $ABI: -------"
     echo "$PKG_CONFIG_PATH"
-#    ls $THREE_BUILD_BASE/libass/$ABI/lib/pkgconfig/
-#    PKG_CONFIG_PATH="$PKG_CONFIG_PATH" pkg-config --modversion libass
-#    cat $THREE_BUILD_BASE/libass/$ABI/lib/pkgconfig/libass.pc
+    ls $THREE_BUILD_BASE/libass/$ABI/lib/pkgconfig/
+    PKG_CONFIG_PATH="$PKG_CONFIG_PATH" pkg-config --modversion libass
+    cat $THREE_BUILD_BASE/libass/$ABI/lib/pkgconfig/libass.pc
 
 
     echo "------- PKG_CONFIG_PATH ls-------"
 #    cat /Users/admin/WorkSpace/AndroidGitCode/Gitee/AXPlayerLib/android/build/libmp3lame/arm64-v8a-so/lib/pkgconfig/libmp3lame.pc
 
 
-#    ls $THREE_BUILD_BASE/freetype2/$ABI/lib/pkgconfig/freetype2.pc
-#    ls $THREE_BUILD_BASE/fribidi/$ABI/lib/pkgconfig/fribidi.pc
-#    ls $THREE_BUILD_BASE/fontconfig/$ABI/lib/pkgconfig/fontconfig.pc
-#    ls $THREE_BUILD_BASE/libunibreak/$ABI/lib/pkgconfig/libunibreak.pc
-#    ls $THREE_BUILD_BASE/libmp3lame/$ABI-so/lib/pkgconfig/libmp3lame.pc
+    ls $THREE_BUILD_BASE/freetype2/$ABI/lib/pkgconfig/freetype2.pc
+    ls $THREE_BUILD_BASE/fribidi/$ABI/lib/pkgconfig/fribidi.pc
+    ls $THREE_BUILD_BASE/fontconfig/$ABI/lib/pkgconfig/fontconfig.pc
+    ls $THREE_BUILD_BASE/libunibreak/$ABI/lib/pkgconfig/libunibreak.pc
+    ls $THREE_BUILD_BASE/libmp3lame/$ABI/lib/pkgconfig/libmp3lame.pc
     ls $THREE_BUILD_BASE/dav1d/$ABI/lib/pkgconfig/dav1d.pc
     ls $THREE_BUILD_BASE/libsoxr/$ABI/lib/pkgconfig/soxr.pc
 
     echo "------- PKG_CONFIG_PATH cflags-------"
-#    PKG_CONFIG_PATH="$PKG_CONFIG_PATH" pkg-config --modversion libmp3lame
+    PKG_CONFIG_PATH="$PKG_CONFIG_PATH" pkg-config --modversion libmp3lame
     PKG_CONFIG_PATH="$PKG_CONFIG_PATH" pkg-config --modversion dav1d
 
-#    PKG_CONFIG_PATH="$PKG_CONFIG_PATH" pkg-config --libs --cflags zlib
-#    PKG_CONFIG_PATH="$PKG_CONFIG_PATH" pkg-config --libs --cflags libass
-#    PKG_CONFIG_PATH="$PKG_CONFIG_PATH" pkg-config --libs --cflags freetype2
-#    PKG_CONFIG_PATH="$PKG_CONFIG_PATH" pkg-config --libs --cflags fribidi
-#    PKG_CONFIG_PATH="$PKG_CONFIG_PATH" pkg-config --libs --cflags fontconfig
-#    PKG_CONFIG_PATH="$PKG_CONFIG_PATH" pkg-config --libs --cflags libunibreak
-#    PKG_CONFIG_PATH="$PKG_CONFIG_PATH" pkg-config --libs --cflags libmp3lame
+    PKG_CONFIG_PATH="$PKG_CONFIG_PATH" pkg-config --libs --cflags zlib
+    PKG_CONFIG_PATH="$PKG_CONFIG_PATH" pkg-config --libs --cflags libass
+    PKG_CONFIG_PATH="$PKG_CONFIG_PATH" pkg-config --libs --cflags freetype2
+    PKG_CONFIG_PATH="$PKG_CONFIG_PATH" pkg-config --libs --cflags fribidi
+    PKG_CONFIG_PATH="$PKG_CONFIG_PATH" pkg-config --libs --cflags fontconfig
+    PKG_CONFIG_PATH="$PKG_CONFIG_PATH" pkg-config --libs --cflags libunibreak
+    PKG_CONFIG_PATH="$PKG_CONFIG_PATH" pkg-config --libs --cflags libmp3lame
     PKG_CONFIG_PATH="$PKG_CONFIG_PATH" pkg-config --libs --cflags dav1d
     PKG_CONFIG_PATH="$PKG_CONFIG_PATH" pkg-config --libs --cflags soxr
 
     echo "----------pkg-config-----------"
-#    pkg-config --modversion libass # 0.17.4
-#    pkg-config --modversion libmp3lame
+    pkg-config --modversion libass # 0.17.4
+    pkg-config --modversion libmp3lame
     pkg-config --modversion dav1d # 0.17.4
-#    pkg-config --libs --cflags libass #    -I/Users/admin/WorkSpace/AndroidGitCode/Gitee/AXPlayerLib/android/build/libass/arm64-v8a/include -I/opt/homebrew/Cellar/fontconfig/2.16.0/include -I/opt/homebrew/Cellar/libunibreak/6.1/include -I/opt/homebrew/Cellar/harfbuzz/11.2.1/include/harfbuzz -I/opt/homebrew/Cellar/glib/2.84.2/include/glib-2.0 -I/opt/homebrew/Cellar/glib/2.84.2/lib/glib-2.0/include -I/opt/homebrew/opt/gettext/include -I/opt/homebrew/Cellar/pcre2/10.45/include -I/opt/homebrew/Cellar/graphite2/1.3.14/include -I/opt/homebrew/Cellar/fribidi/1.0.16/include/fribidi -I/opt/homebrew/opt/freetype/include/freetype2 -I/opt/homebrew/opt/libpng/include/libpng16 -L/Users/admin/WorkSpace/AndroidGitCode/Gitee/AXPlayerLib/android/build/libass/arm64-v8a/lib -lass -lm -L/opt/homebrew/Cellar/fontconfig/2.16.0/lib -lfontconfig -L/opt/homebrew/Cellar/libunibreak/6.1/lib -lunibreak -L/opt/homebrew/Cellar/harfbuzz/11.2.1/lib -lharfbuzz -L/opt/homebrew/Cellar/fribidi/1.0.16/lib -lfribidi -L/opt/homebrew/opt/freetype/lib -lfreetype
+    pkg-config --libs --cflags libass #    -I/Users/admin/WorkSpace/AndroidGitCode/Gitee/AXPlayerLib/android/build/libass/arm64-v8a/include -I/opt/homebrew/Cellar/fontconfig/2.16.0/include -I/opt/homebrew/Cellar/libunibreak/6.1/include -I/opt/homebrew/Cellar/harfbuzz/11.2.1/include/harfbuzz -I/opt/homebrew/Cellar/glib/2.84.2/include/glib-2.0 -I/opt/homebrew/Cellar/glib/2.84.2/lib/glib-2.0/include -I/opt/homebrew/opt/gettext/include -I/opt/homebrew/Cellar/pcre2/10.45/include -I/opt/homebrew/Cellar/graphite2/1.3.14/include -I/opt/homebrew/Cellar/fribidi/1.0.16/include/fribidi -I/opt/homebrew/opt/freetype/include/freetype2 -I/opt/homebrew/opt/libpng/include/libpng16 -L/Users/admin/WorkSpace/AndroidGitCode/Gitee/AXPlayerLib/android/build/libass/arm64-v8a/lib -lass -lm -L/opt/homebrew/Cellar/fontconfig/2.16.0/lib -lfontconfig -L/opt/homebrew/Cellar/libunibreak/6.1/lib -lunibreak -L/opt/homebrew/Cellar/harfbuzz/11.2.1/lib -lharfbuzz -L/opt/homebrew/Cellar/fribidi/1.0.16/lib -lfribidi -L/opt/homebrew/opt/freetype/lib -lfreetype
     pkg-config --libs --cflags zlib
-#    pkg-config --libs --cflags freetype2
-#    pkg-config --libs --cflags fribidi
-#    pkg-config --libs --cflags fontconfig
-#    pkg-config --libs --cflags libunibreak
-#    pkg-config --libs --cflags libmp3lame
+    pkg-config --libs --cflags freetype2
+    pkg-config --libs --cflags fribidi
+    pkg-config --libs --cflags fontconfig
+    pkg-config --libs --cflags libunibreak
+    pkg-config --libs --cflags libmp3lame
     pkg-config --libs --cflags dav1d
     pkg-config --libs --cflags soxr
 
@@ -229,8 +229,8 @@ EXTRA_LDFLAGS=
     export NM="$TOOLCHAIN/bin/llvm-nm"
     export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
     export STRINGS="$TOOLCHAIN/bin/llvm-strings"
-    export EXTRA_CFLAGS="-O2 -g0"
-    export EXTRA_CXXFLAGS="-O2 -g0"
+#    export EXTRA_CFLAGS="-O2 -g0"
+#    export EXTRA_CXXFLAGS="-O2 -g0"
     if [ ! -x "$STRINGS" ]; then
         export STRINGS="$(which strings)"
     fi
@@ -282,12 +282,12 @@ EXTRA_LDFLAGS=
         --enable-libvpx \
         --extra-cflags="-Os -fPIC -DANDROID $EXTRA_CFLAGS" \
         --extra-ldflags="$EXTRA_LDFLAGS" \
-        --disable-debug
-#        --enable-libmp3lame \
-#        --enable-libass \
-#        --enable-libfreetype \
-#        --enable-libfribidi \
-#        --enable-libharfbuzz \
+        --disable-debug \
+        --enable-libmp3lame \
+        --enable-libass \
+        --enable-libfreetype \
+        --enable-libfribidi \
+        --enable-libharfbuzz \
 
     make -j$JOBS
     make install
