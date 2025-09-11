@@ -161,6 +161,8 @@ for ABI in "${TARGETS[@]}"; do
   [ -x "$STRINGS" ] || STRINGS="$(which strings || true)"
 
   EXTRA_LIBS="-lm -lomp"
+  EXTRA_ASMFLAGS="-fPIC"
+  export ASFLAGS="-fPIC"
 
   "$FFMPEG_SRC_DIR/configure" \
     --prefix="$INSTALL_DIR" \
@@ -196,6 +198,7 @@ for ABI in "${TARGETS[@]}"; do
     --enable-openssl \
     --enable-zlib \
     --extra-cflags="-Os -fPIC -DANDROID $EXTRA_CFLAGS" \
+    --extra-asmflags="$EXTRA_ASMFLAGS" \
     --extra-ldflags="$EXTRA_LDFLAGS" \
     --extra-libs="$EXTRA_LIBS" \
     --disable-debug
@@ -248,6 +251,12 @@ for ABI in "${TARGETS[@]}"; do
   echo ">>> [$ABI] 正在链接单一 so: $(basename "$OUT_SO")"
   EXTRA_LINK_FIX=""
   [ "$ABI" = "armeabi-v7a" ] && EXTRA_LINK_FIX="-Wl,--fix-cortex-a8"
+
+  "$TOOLCHAIN/bin/llvm-ar" t "$FFLIB/libavutil.a" | grep tx_float_neon.o && \
+  "$TOOLCHAIN/bin/llvm-objdump" -f -d \
+      --no-show-raw-insn \
+      -j .text \
+      <( "$TOOLCHAIN/bin/llvm-ar" x -o /dev/stdout "$FFLIB/libavutil.a" libavutil/aarch64/tx_float_neon.o ) | head
 
   "$CC" -shared -o "$OUT_SO" \
     -Wl,-soname,libAXFCore.so \
