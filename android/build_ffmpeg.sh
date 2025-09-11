@@ -88,7 +88,6 @@ for ABI in "${TARGETS[@]}"; do
   OPENSSL_PREFIX="$THREE_BUILD_BASE/openssl/$ABI"
   LIBUNIBREAK_PREFIX="$THREE_BUILD_BASE/libunibreak/$ABI"
   DAV1D_PREFIX="$THREE_BUILD_BASE/dav1d/$ABI"
-  EXPAT_PREFIX="$THREE_BUILD_BASE/expat/$ABI"
   ICONV_PREFIX="$THREE_BUILD_BASE/libiconv/$ABI"
 
   # 头文件
@@ -97,7 +96,7 @@ for ABI in "${TARGETS[@]}"; do
     "$X264_PREFIX/include" "$LAME_PREFIX/include" "$ASS_PREFIX/include" \
     "$FREETYPE_PREFIX/include" "$FRIBIDI_PREFIX/include" "$HARFBUZZ_PREFIX/include" \
     "$ZLIB_PREFIX/include" "$SOXR_PREFIX/include" "$SOUNDTOUCH_PREFIX/include" \
-    "$OPENSSL_PREFIX/include" "$EXPAT_PREFIX/include" "$DAV1D_PREFIX/include" \
+    "$OPENSSL_PREFIX/include" "$DAV1D_PREFIX/include" \
     "$LIBUNIBREAK_PREFIX/include" "$ICONV_PREFIX/include"
   do
     [ -d "$inc" ] && EXTRA_CFLAGS="$EXTRA_CFLAGS -I$inc"
@@ -108,7 +107,7 @@ for ABI in "${TARGETS[@]}"; do
   for lib in \
     "$X264_PREFIX/lib" "$LAME_PREFIX/lib" "$ASS_PREFIX/lib" "$FREETYPE_PREFIX/lib" \
     "$FRIBIDI_PREFIX/lib" "$HARFBUZZ_PREFIX/lib" "$ZLIB_PREFIX/lib" "$SOXR_PREFIX/lib" \
-    "$SOUNDTOUCH_PREFIX/lib" "$OPENSSL_PREFIX/lib" "$EXPAT_PREFIX/lib" "$DAV1D_PREFIX/lib" \
+    "$SOUNDTOUCH_PREFIX/lib" "$OPENSSL_PREFIX/lib" "$DAV1D_PREFIX/lib" \
     "$LIBUNIBREAK_PREFIX/lib" "$ICONV_PREFIX/lib"
   do
     [ -d "$lib" ] && EXTRA_LDFLAGS="$EXTRA_LDFLAGS -L$lib"
@@ -138,7 +137,6 @@ for ABI in "${TARGETS[@]}"; do
     "$HARFBUZZ_PREFIX/lib/pkgconfig" \
     "$DAV1D_PREFIX/lib/pkgconfig" \
     "$LIBUNIBREAK_PREFIX/lib/pkgconfig" \
-    "$EXPAT_PREFIX/lib/pkgconfig" \
     "$ASS_PREFIX/lib/pkgconfig"
   do
     [ -d "$d" ] && PKGCFG="${PKGCFG:+$PKGCFG:}$d"
@@ -246,7 +244,6 @@ for ABI in "${TARGETS[@]}"; do
   add_if_exist "$OPENSSL_PREFIX/lib/libssl.a"
   add_if_exist "$OPENSSL_PREFIX/lib/libcrypto.a"
   add_if_exist "$DAV1D_PREFIX/lib/libdav1d.a"
-  add_if_exist "$EXPAT_PREFIX/lib/libexpat.a"
   add_if_exist "$LIBUNIBREAK_PREFIX/lib/libunibreak.a"
   add_if_exist "$ICONV_PREFIX/lib/libiconv.a"
   add_if_exist "$ICONV_PREFIX/lib/libcharset.a"
