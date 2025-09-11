@@ -75,9 +75,9 @@ for ABI in "${TARGETS[@]}"; do
       CXX="$TOOLCHAIN/bin/${HOST}${ANDROID_API}-clang++"
       ;;
     armeabi-v7a)
-      ARCH="arm"; CPU="armv7-a"; HOST="armv7a-linux-androideabi"
-      CC="$TOOLCHAIN/bin/${HOST}${ANDROID_API}-clang"
-      CXX="$TOOLCHAIN/bin/${HOST}${ANDROID_API}-clang++"
+      ARCH="arm"; CPU="armv7-a"; HOST="arm-linux-androideabi"
+      CC="$TOOLCHAIN/bin/armv7a-linux-androideabi${ANDROID_API}-clang"
+      CXX="$TOOLCHAIN/bin/armv7a-linux-androideabi${ANDROID_API}-clang++"
       ;;
     *) echo "不支持的 ABI: $ABI"; exit 1 ;;
   esac
@@ -93,7 +93,6 @@ for ABI in "${TARGETS[@]}"; do
   SOXR_PREFIX="$THREE_BUILD_BASE/libsoxr/$ABI"
   SOUNDTOUCH_PREFIX="$THREE_BUILD_BASE/SoundTouch/$ABI"
   OPENSSL_PREFIX="$THREE_BUILD_BASE/openssl/$ABI"
-  FONTCOFIG_PREFIX="$THREE_BUILD_BASE/fontconfig/$ABI"
   LIBUNIBREAK_PREFIX="$THREE_BUILD_BASE/libunibreak/$ABI"
   DAV1D_PREFIX="$THREE_BUILD_BASE/dav1d/$ABI"
   EXPAT_PREFIX="$THREE_BUILD_BASE/expat/$ABI"
@@ -105,7 +104,7 @@ for ABI in "${TARGETS[@]}"; do
     "$FREETYPE_PREFIX/include" "$FRIBIDI_PREFIX/include" "$HARFBUZZ_PREFIX/include" \
     "$ZLIB_PREFIX/include" "$SOXR_PREFIX/include" "$SOUNDTOUCH_PREFIX/include" \
     "$OPENSSL_PREFIX/include" "$EXPAT_PREFIX/include" "$DAV1D_PREFIX/include" \
-    "$FONTCOFIG_PREFIX/include" "$LIBUNIBREAK_PREFIX/include"
+    "$LIBUNIBREAK_PREFIX/include"
   do
     [ -d "$inc" ] && EXTRA_CFLAGS="$EXTRA_CFLAGS -I$inc"
   done
@@ -116,7 +115,7 @@ for ABI in "${TARGETS[@]}"; do
     "$X264_PREFIX/lib" "$LAME_PREFIX/lib" "$ASS_PREFIX/lib" "$FREETYPE_PREFIX/lib" \
     "$FRIBIDI_PREFIX/lib" "$HARFBUZZ_PREFIX/lib" "$ZLIB_PREFIX/lib" "$SOXR_PREFIX/lib" \
     "$SOUNDTOUCH_PREFIX/lib" "$OPENSSL_PREFIX/lib" "$EXPAT_PREFIX/lib" "$DAV1D_PREFIX/lib" \
-    "$FONTCOFIG_PREFIX/lib" "$LIBUNIBREAK_PREFIX/lib"
+    "$LIBUNIBREAK_PREFIX/lib"
   do
     [ -d "$lib" ] && EXTRA_LDFLAGS="$EXTRA_LDFLAGS -L$lib"
   done
@@ -141,7 +140,6 @@ for ABI in "${TARGETS[@]}"; do
     "$LAME_PREFIX/lib/pkgconfig" \
     "$FREETYPE_PREFIX/lib/pkgconfig" \
     "$FRIBIDI_PREFIX/lib/pkgconfig" \
-    "$FONTCOFIG_PREFIX/lib/pkgconfig" \
     "$HARFBUZZ_PREFIX/lib/pkgconfig" \
     "$DAV1D_PREFIX/lib/pkgconfig" \
     "$LIBUNIBREAK_PREFIX/lib/pkgconfig" \
@@ -229,7 +227,6 @@ for ABI in "${TARGETS[@]}"; do
   add_if_exist "$DAV1D_PREFIX/lib/libdav1d.a"
   add_if_exist "$EXPAT_PREFIX/lib/libexpat.a"
   add_if_exist "$LIBUNIBREAK_PREFIX/lib/libunibreak.a"
-  add_if_exist "$FONTCOFIG_PREFIX/lib/libfontconfig.a"
 
   if [ ${#FF_A[@]} -eq 0 ]; then
     echo "!!! 未找到 FFmpeg .a（检查 $FFLIB）"

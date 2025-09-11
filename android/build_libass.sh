@@ -66,7 +66,7 @@ for ABI in "${TARGETS[@]}"; do
       ABI_EXTRA_CFLAGS=""
       ;;
     armeabi-v7a)
-      HOST="arm-linux-androideabi"   # 与 NDK 三元组一致
+      HOST="arm-linux-androideabi"
       CC_BIN="$TOOLCHAIN/bin/armv7a-linux-androideabi${ANDROID_API}-clang"
       CPU_MARCH="armv7-a"
       ABI_EXTRA_CFLAGS="-mthumb -mfloat-abi=softfp -mfpu=neon"
