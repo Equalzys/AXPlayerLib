@@ -148,7 +148,7 @@ for ABI in "${TARGETS[@]}"; do
   # —— 诊断：确保能发现关键三方库 ——
   echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
   echo ">>> libass:   $(pkg-config --modversion libass   2>&1 || true)"
-  echo ">>> libsoxr:  $(pkg-config --libs libsoxr         2>&1 || true)"
+  echo ">>> libsoxr:  $(pkg-config --libs soxr         2>&1 || true)"
   echo ">>> freetype: $(pkg-config --modversion freetype2 2>&1 || true)"
 
   export PATH="$TOOLCHAIN/bin:$PATH"
@@ -161,7 +161,7 @@ for ABI in "${TARGETS[@]}"; do
 
   # —— 方案 A：为所有探测/链接补充数学库，避免 soxr 检测期因 -lm 缺失失败 ——
   # 若以后你把 libsoxr 用 OpenMP 编译，请把 EXTRA_LIBS 改成 "-lm -lomp"
-  EXTRA_LIBS="-lm"
+  EXTRA_LIBS="-lm -lomp"
 
   "$FFMPEG_SRC_DIR/configure" \
     --prefix="$INSTALL_DIR" \
