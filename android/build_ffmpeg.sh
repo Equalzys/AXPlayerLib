@@ -51,6 +51,7 @@ if [ "$1" = "clean" ]; then
       (cd "$SRC" && make distclean 2>/dev/null || true)
     fi
     rm -rf "$SRC/build" "$BUILD_BASE/$ABI"
+    # 不能加引号，否则通配符不展开
     rm -rf $SRC/*.o $SRC/*.so $SRC/*.lo $SRC/*.la 2>/dev/null || true
   done
   echo ">>> 清理完成！"
@@ -147,8 +148,8 @@ for ABI in "${TARGETS[@]}"; do
 
   # —— 诊断：确保能发现关键三方库 ——
   echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
-  echo ">>> libass:   $(pkg-config --modversion libass   2>&1 || true)"
-  echo ">>> libsoxr:  $(pkg-config --libs soxr         2>&1 || true)"
+  echo ">>> libass:   $(pkg-config --modversion libass    2>&1 || true)"
+  echo ">>> libsoxr:  $(pkg-config --libs       soxr      2>&1 || true)"
   echo ">>> freetype: $(pkg-config --modversion freetype2 2>&1 || true)"
 
   export PATH="$TOOLCHAIN/bin:$PATH"
@@ -159,8 +160,6 @@ for ABI in "${TARGETS[@]}"; do
   export STRINGS="$TOOLCHAIN/bin/llvm-strings"
   [ -x "$STRINGS" ] || STRINGS="$(which strings || true)"
 
-  # —— 方案 A：为所有探测/链接补充数学库，避免 soxr 检测期因 -lm 缺失失败 ——
-  # 若以后你把 libsoxr 用 OpenMP 编译，请把 EXTRA_LIBS 改成 "-lm -lomp"
   EXTRA_LIBS="-lm -lomp"
 
   "$FFMPEG_SRC_DIR/configure" \
@@ -203,19 +202,22 @@ for ABI in "${TARGETS[@]}"; do
 
   make -j"$JOBS"
   make install
-
   echo ">>> [$ABI] FFmpeg 静态库已安装到: $INSTALL_DIR"
 
   # ========= 链接成单一 libAXFCore.so =========
   OUT_SO="$INSTALL_DIR/libAXFCore.so"
   FFLIB="$INSTALL_DIR/lib"
 
-  declare -a FF_A
+  # —— 每个 ABI 轮次显式重置数组，避免残留 ——
+  FF_A=()
+  THIRD_A=()
+
+  # FFmpeg 核心 .a
   for a in libavcodec.a libavformat.a libavutil.a libswresample.a libswscale.a libavfilter.a libavdevice.a; do
     [ -f "$FFLIB/$a" ] && FF_A+=("$FFLIB/$a")
   done
 
-  declare -a THIRD_A
+  # 三方 .a
   add_if_exist() { [ -f "$1" ] && THIRD_A+=("$1"); }
   add_if_exist "$X264_PREFIX/lib/libx264.a"
   add_if_exist "$LAME_PREFIX/lib/libmp3lame.a"
@@ -236,19 +238,25 @@ for ABI in "${TARGETS[@]}"; do
     echo "!!! 未找到 FFmpeg .a（检查 $FFLIB）"; exit 1
   fi
 
-  echo ">>> [$ABI] 正在链接单一 so: $(basename "$OUT_SO")"
+  # 自检：打印所有将要链接的 .a 及其架构，快速发现 ABI 混用
+  echo ">>> [$ABI] 将要链接以下静态库："
+  for f in "${FF_A[@]}" "${THIRD_A[@]}"; do
+    echo "    $f"
+    file "$f" | sed 's/^/      /'
+  done
 
+  echo ">>> [$ABI] 正在链接单一 so: $(basename "$OUT_SO")"
   EXTRA_LINK_FIX=""
   [ "$ABI" = "armeabi-v7a" ] && EXTRA_LINK_FIX="-Wl,--fix-cortex-a8"
 
   "$CC" -shared -o "$OUT_SO" \
     -Wl,-soname,libAXFCore.so \
     -Wl,--no-undefined -Wl,--gc-sections \
-    -Wl,--exclude-libs,ALL \
-    -Wl,--start-group \
+    -Wl,--no-as-needed \
+    -Wl,--whole-archive \
       "${FF_A[@]}" \
       "${THIRD_A[@]}" \
-    -Wl,--end-group \
+    -Wl,--no-whole-archive \
     -llog -landroid -ldl -lm -lmediandk \
     -static-libstdc++ \
     $EXTRA_LINK_FIX
