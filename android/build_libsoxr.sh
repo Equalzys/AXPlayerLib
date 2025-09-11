@@ -90,6 +90,7 @@ for ABI in "${TARGETS[@]}"; do
         -DBUILD_EXAMPLES=OFF \
         -DBUILD_TESTS=OFF \
         -DBUILD_TOOLS=OFF \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
         -DCMAKE_SHARED_LINKER_FLAGS="-Wl,--max-page-size=16384"
 

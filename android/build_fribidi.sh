@@ -87,7 +87,8 @@ endian = 'little'
         --libdir "lib" \
         --default-library static \
         --buildtype release \
-        -Ddocs=false
+        -Db_staticpic=true \
+        -Ddocs=false -Dtests=false \
 
     ninja -j$JOBS
     ninja install

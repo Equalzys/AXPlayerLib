@@ -92,6 +92,10 @@ for ABI in "${TARGETS[@]}"; do
         -DANDROID_PLATFORM=android-"$ANDROID_API" \
         -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_shared=OFF \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DEXPAT_BUILD_TESTS=OFF \
+        -DEXPAT_BUILD_EXAMPLES=OFF \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR"
 
     make -j$JOBS

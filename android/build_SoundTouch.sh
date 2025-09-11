@@ -85,6 +85,7 @@ for ABI in "${TARGETS[@]}"; do
         -DANDROID_PLATFORM=android-$ANDROID_API \
         -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_SHARED_LIBS=OFF \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
         -DCMAKE_SHARED_LINKER_FLAGS="-Wl,--max-page-size=16384"
 

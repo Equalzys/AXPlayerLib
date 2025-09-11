@@ -38,7 +38,7 @@ TOOLCHAINS=$(grep '^ndk_toolchains=' "$NDK_PROP_FILE" | cut -d'=' -f2- | tr -d '
 if [ -z "${TOOLCHAINS:-}" ] || [ ! -d "$TOOLCHAINS" ]; then
   case "$(uname -s)" in
     Linux*)  HOST_OS=linux-x86_64 ;;
-    Darwin*) HOST_OS=darwin-x86_64 ;;
+    Darwin*) HOST_OS=darwin-x86_64 ;;  # Apple Silicon 一般也在此目录
     *) echo "!!! 不支持的主机系统：$(uname -s)"; exit 1 ;;
   esac
   TOOLCHAINS="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$HOST_OS"
@@ -62,7 +62,7 @@ if [ "$1" = "clean" ]; then
       (cd "$SRC" && make clean 2>/dev/null || true)
       (cd "$SRC" && make distclean 2>/dev/null || true)
     fi
-    # 注意：这里不能加引号，否则通配符不展开
+    # 不能加引号，否则通配符不展开
     rm -rf $SRC/*.o $SRC/*.so $SRC/*.lo $SRC/*.la 2>/dev/null || true
   done
   echo ">>> 清理完成！"
@@ -75,9 +75,8 @@ if ! command -v perl >/dev/null 2>&1; then
   exit 1
 fi
 
-# 开始构建
 for ABI in "${TARGETS[@]}"; do
-  echo ">>> [openssl] 正在编译 $ABI ..."
+  echo ">>> [openssl-3.4.1] 正在编译 $ABI ..."
 
   SRC_DIR="$SRC_BASE/${SRC_BASENAME}-${ABI}"
   INSTALL_DIR="$BUILD_BASE/$ABI"
@@ -87,14 +86,11 @@ for ABI in "${TARGETS[@]}"; do
       TARGET="android-arm64"
       HOST_TRIPLET="aarch64-linux-android"
       CC_BIN="${HOST_TRIPLET}${ANDROID_API}-clang"
-      CXX_BIN="${HOST_TRIPLET}${ANDROID_API}-clang++"
       ;;
     armeabi-v7a)
       TARGET="android-arm"
-      # 注意：前缀为 armv7a-linux-androideabi（带 v7a）
-      HOST_TRIPLET="armv7a-linux-androideabi"
+      HOST_TRIPLET="armv7a-linux-androideabi"   # 注意 armv7a 前缀
       CC_BIN="${HOST_TRIPLET}${ANDROID_API}-clang"
-      CXX_BIN="${HOST_TRIPLET}${ANDROID_API}-clang++"
       ;;
     *) echo "不支持的 ABI: $ABI"; exit 1 ;;
   esac
@@ -104,35 +100,50 @@ for ABI in "${TARGETS[@]}"; do
 
   cd "$SRC_DIR"
 
-  # 环境变量：让 OpenSSL 的 Configure 能找到 NDK/工具
+  # 环境：让 Configure 使用 NDK/clang 工具链
   export ANDROID_NDK="$ANDROID_NDK_HOME"
-  export ANDROID_NDK_HOME="$ANDROID_NDK_HOME"
   export PATH="$TOOLCHAINS/bin:$PATH"
 
-  # 显式指定工具，避免寻找 gcc
   export CC="$TOOLCHAINS/bin/$CC_BIN"
-  export CXX="$TOOLCHAINS/bin/$CXX_BIN"
   export AR="$TOOLCHAINS/bin/llvm-ar"
   export RANLIB="$TOOLCHAINS/bin/llvm-ranlib"
   export STRIP="$TOOLCHAINS/bin/llvm-strip"
   export NM="$TOOLCHAINS/bin/llvm-nm"
-  export LD="$TOOLCHAINS/bin/ld.lld"
-  export AS="$CC"  # clang 充当汇编器
+  export AS="$CC"   # clang 充当汇编器
+
+  # 确保静态库可被装入 .so：-fPIC
   export CFLAGS="-fPIC -O2"
+  export CXXFLAGS="-fPIC -O2"
   export LDFLAGS=""
-  # OpenSSL 3 默认用 clang；-D__ANDROID_API__ 必须传
+
+  # OpenSSL 3.4.x 配置：
+  # - no-shared：只产出 .a
+  # - no-tests：不编单测
+  # - -D__ANDROID_API__：显式指定 API level
   perl ./Configure \
     "$TARGET" \
     -D__ANDROID_API__="$ANDROID_API" \
     --prefix="$INSTALL_DIR" \
     no-shared \
     no-tests \
-    no-unit-test \
     -fPIC
 
-  make -j"$JOBS"
-  make install_sw
+  # 只编库，避免编 apps/openssl
+  if make -n build_libs >/dev/null 2>&1; then
+    make -j"$JOBS" build_libs
+  else
+    make -j"$JOBS"
+  fi
 
+  # 只安装开发所需（头文件 + 静态库）
+  if make -n install_dev >/dev/null 2>&1; then
+    make install_dev
+  else
+    make install_sw
+  fi
+
+  echo ">>> [$ABI] 输出目录: $INSTALL_DIR"
+  echo ">>> [$ABI] 产物应包含: $INSTALL_DIR/lib/libcrypto.a 与 $INSTALL_DIR/lib/libssl.a"
 done
 
-echo ">>> openssl 全部 ABI 静态库编译完成！"
+echo ">>> OpenSSL 全部 ABI 静态库编译完成！"

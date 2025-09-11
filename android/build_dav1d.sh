@@ -118,7 +118,7 @@ cpp_args = ['-DANDROID', '-fPIC']
 EOF
 
     cd "$BUILD_DIR"
-    meson setup .. --cross-file="$CROSS_FILE" --prefix="$INSTALL_DIR" --default-library=static --buildtype=release
+    meson setup .. --cross-file="$CROSS_FILE" --prefix="$INSTALL_DIR" --default-library=static --buildtype=release -Denable_tools=false -Denable_tests=false
     ninja -j$JOBS
     ninja install
 
