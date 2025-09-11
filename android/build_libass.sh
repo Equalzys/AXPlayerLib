@@ -83,6 +83,11 @@ for ABI in "${TARGETS[@]}"; do
   export PKG_CONFIG_PATH
   export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"
 
+  ICONV_PREFIX="$AXPLAYER_ROOT/android/build/libiconv/$ABI"
+  export CPPFLAGS="$CPPFLAGS -I$ICONV_PREFIX/include"
+  export LDFLAGS="${LDFLAGS:-} -L$ICONV_PREFIX/lib"
+  export LIBS="${LIBS:-} -liconv -lcharset"
+
   echo "PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
   pkg-config --modversion freetype2 || true
   pkg-config --modversion fribidi || true
