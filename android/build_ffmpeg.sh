@@ -10,10 +10,7 @@ SRC_BASE="$AXPLAYER_ROOT/android"
 ARCHS=("arm64-v8a" "armeabi-v7a")
 TARGETS=()
 
-usage() {
-  echo "用法: $0 [clean|arm64|armv7a|all]"
-  exit 1
-}
+usage() { echo "用法: $0 [clean|arm64|armv7a|all]"; exit 1; }
 [ $# -eq 0 ] && usage
 
 case "$1" in
@@ -42,11 +39,7 @@ fi
 [ -d "$TOOLCHAIN" ] || { echo "!!! TOOLCHAIN ($TOOLCHAIN) 路径无效"; exit 1; }
 
 # 并发
-if command -v nproc >/dev/null 2>&1; then
-  JOBS=$(nproc)
-else
-  JOBS=$(sysctl -n hw.ncpu)
-fi
+if command -v nproc >/dev/null 2>&1; then JOBS=$(nproc); else JOBS=$(sysctl -n hw.ncpu); fi
 
 # 清理
 if [ "$1" = "clean" ]; then
@@ -58,7 +51,6 @@ if [ "$1" = "clean" ]; then
       (cd "$SRC" && make distclean 2>/dev/null || true)
     fi
     rm -rf "$SRC/build" "$BUILD_BASE/$ABI"
-    # 不能加引号，否则通配符不展开
     rm -rf $SRC/*.o $SRC/*.so $SRC/*.lo $SRC/*.la 2>/dev/null || true
   done
   echo ">>> 清理完成！"
@@ -110,7 +102,7 @@ for ABI in "${TARGETS[@]}"; do
     [ -d "$inc" ] && EXTRA_CFLAGS="$EXTRA_CFLAGS -I$inc"
   done
 
-  # 库搜索路径（给 configure 的测试用；最终链接我们用 .a 绝对路径）
+  # 库搜索路径（供 configure 测试时使用）
   EXTRA_LDFLAGS=""
   for lib in \
     "$X264_PREFIX/lib" "$LAME_PREFIX/lib" "$ASS_PREFIX/lib" "$FREETYPE_PREFIX/lib" \
@@ -153,13 +145,11 @@ for ABI in "${TARGETS[@]}"; do
   export PKG_CONFIG_PATH="$PKGCFG"
   export PKG_CONFIG_LIBDIR="$PKGCFG"
 
-  # —— 诊断：确保能发现 libass ——
+  # —— 诊断：确保能发现关键三方库 ——
   echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
-  pkg-config --print-errors --modversion libass || {
-    echo "!!! pkg-config 无法找到 libass；列出目录内容以便排查："
-    echo ">>> $(echo "$PKGCFG" | tr ':' '\n' | xargs -I{} sh -c 'echo {}; ls -l {} || true')"
-    exit 1
-  }
+  echo ">>> libass:   $(pkg-config --modversion libass   2>&1 || true)"
+  echo ">>> libsoxr:  $(pkg-config --libs libsoxr         2>&1 || true)"
+  echo ">>> freetype: $(pkg-config --modversion freetype2 2>&1 || true)"
 
   export PATH="$TOOLCHAIN/bin:$PATH"
   export CC="$CC"; export CXX="$CXX"
@@ -169,7 +159,10 @@ for ABI in "${TARGETS[@]}"; do
   export STRINGS="$TOOLCHAIN/bin/llvm-strings"
   [ -x "$STRINGS" ] || STRINGS="$(which strings || true)"
 
-  # 配置：静态库构建
+  # —— 方案 A：为所有探测/链接补充数学库，避免 soxr 检测期因 -lm 缺失失败 ——
+  # 若以后你把 libsoxr 用 OpenMP 编译，请把 EXTRA_LIBS 改成 "-lm -lomp"
+  EXTRA_LIBS="-lm"
+
   "$FFMPEG_SRC_DIR/configure" \
     --prefix="$INSTALL_DIR" \
     --target-os=android \
@@ -205,6 +198,7 @@ for ABI in "${TARGETS[@]}"; do
     --enable-zlib \
     --extra-cflags="-Os -fPIC -DANDROID $EXTRA_CFLAGS" \
     --extra-ldflags="$EXTRA_LDFLAGS" \
+    --extra-libs="$EXTRA_LIBS" \
     --disable-debug
 
   make -j"$JOBS"
@@ -239,8 +233,7 @@ for ABI in "${TARGETS[@]}"; do
   add_if_exist "$LIBUNIBREAK_PREFIX/lib/libunibreak.a"
 
   if [ ${#FF_A[@]} -eq 0 ]; then
-    echo "!!! 未找到 FFmpeg .a（检查 $FFLIB）"
-    exit 1
+    echo "!!! 未找到 FFmpeg .a（检查 $FFLIB）"; exit 1
   fi
 
   echo ">>> [$ABI] 正在链接单一 so: $(basename "$OUT_SO")"
@@ -260,9 +253,7 @@ for ABI in "${TARGETS[@]}"; do
     -static-libstdc++ \
     $EXTRA_LINK_FIX
 
-  # 可选 strip
   "$TOOLCHAIN/bin/llvm-strip" --strip-unneeded "$OUT_SO" || true
-
   echo ">>> [$ABI] 产物: $OUT_SO"
 done
 
