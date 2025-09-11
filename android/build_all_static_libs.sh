@@ -21,6 +21,7 @@ echo ">>> 批量编译全部三方静态库... (mode: $MODE)"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+
 LIB_LIST=(
   build_zlib.sh
   build_libmp3lame.sh
@@ -33,10 +34,8 @@ LIB_LIST=(
   build_libunibreak.sh
   build_harfbuzz.sh
   build_iconv.sh
-  build_expat.sh
   build_fribidi.sh
   build_freetype2.sh
-  build_fontconfig.sh
   build_libass.sh
 )
 

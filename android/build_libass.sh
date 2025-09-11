@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 ANDROID_API=23
 AXPLAYER_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -9,145 +9,146 @@ SRC_BASE="$AXPLAYER_ROOT/android"
 ARCHS=("arm64-v8a" "armeabi-v7a")
 TARGETS=()
 
-# 参数解析
-usage() {
-    echo "用法: $0 [clean|arm64|armv7a|all]"; exit 1;
-}
-if [ $# -eq 0 ]; then usage; fi
+usage() { echo "用法: $0 [clean|arm64|armv7a|all]"; exit 1; }
+[ $# -eq 1 ] || usage
 
 case "$1" in
-    clean)
-        echo ">>> 清理 libass 各 ABI 目录 ..."
-        for ABI in "${ARCHS[@]}"; do
-            SRC="$SRC_BASE/${SRC_BASENAME}-${ABI}"
-            if [ -f "$SRC/Makefile" ]; then
-                (cd "$SRC" && make clean 2>/dev/null || true)
-                (cd "$SRC" && make distclean 2>/dev/null || true)
-            fi
-            rm -rf "$SRC/*.o" "$SRC/*.so" "$SRC/*.lo" "$SRC/*.la"
-            rm -rf "$BUILD_BASE/$ABI"
-        done
-        echo ">>> 清理完成！"
-        exit 0
-        ;;
-    arm64)
-        TARGETS=("arm64-v8a")
-        ;;
-    armv7a)
-        TARGETS=("armeabi-v7a")
-        ;;
-    all)
-        TARGETS=("${ARCHS[@]}")
-        ;;
-    *)
-        usage
-        ;;
+  clean)  TARGETS=("${ARCHS[@]}") ;;
+  arm64)  TARGETS=("arm64-v8a") ;;
+  armv7a) TARGETS=("armeabi-v7a") ;;
+  all)    TARGETS=("${ARCHS[@]}") ;;
+  *) usage ;;
 esac
 
 NDK_PROP_FILE="$AXPLAYER_ROOT/local.properties"
-if [ ! -f "$NDK_PROP_FILE" ]; then
-    echo "!!! 未找到 $NDK_PROP_FILE"
-    exit 1
-fi
-ANDROID_NDK_HOME=$(grep '^ndk.dir=' "$NDK_PROP_FILE" | cut -d'=' -f2-)
-ANDROID_NDK_HOME="${ANDROID_NDK_HOME//[$'\r\n']}"
-TOOLCHAIN=$(grep '^ndk_toolchains=' "$NDK_PROP_FILE" | cut -d'=' -f2-)
-TOOLCHAIN="${TOOLCHAIN//[$'\r\n']}"
+[ -f "$NDK_PROP_FILE" ] || { echo "!!! 未找到 $NDK_PROP_FILE"; exit 1; }
+ANDROID_NDK_HOME=$(grep '^ndk.dir=' "$NDK_PROP_FILE" | cut -d'=' -f2- | tr -d '\r\n')
+TOOLCHAIN=$(grep '^ndk_toolchains=' "$NDK_PROP_FILE" | cut -d'=' -f2- | tr -d '\r\n')
+[ -d "$ANDROID_NDK_HOME" ] || { echo "!!! ANDROID_NDK_HOME ($ANDROID_NDK_HOME) 路径无效"; exit 1; }
+[ -d "$TOOLCHAIN" ] || { echo "!!! TOOLCHAIN ($TOOLCHAIN) 路径无效"; exit 1; }
 
-if [ ! -d "$ANDROID_NDK_HOME" ]; then
-    echo "!!! ANDROID_NDK_HOME ($ANDROID_NDK_HOME) 路径无效"
-    exit 1
-fi
-if [ ! -d "$TOOLCHAIN" ]; then
-    echo "!!! TOOLCHAIN ($TOOLCHAIN) 路径无效"
-    exit 1
-fi
-if command -v nproc >/dev/null 2>&1; then
-    JOBS=$(nproc)
-else
-    JOBS=$(sysctl -n hw.ncpu)
+# 并发
+if command -v nproc >/dev/null 2>&1; then JOBS=$(nproc); else JOBS=$(sysctl -n hw.ncpu); fi
+
+# 清理
+if [ "$1" = "clean" ]; then
+  echo ">>> 清理 libass 各 ABI 目录 ..."
+  for ABI in "${TARGETS[@]}"; do
+    SRC="$SRC_BASE/${SRC_BASENAME}-${ABI}"
+    if [ -f "$SRC/Makefile" ]; then
+      (cd "$SRC" && make clean 2>/dev/null || true)
+      (cd "$SRC" && make distclean 2>/dev/null || true)
+    fi
+    rm -rf "$BUILD_BASE/$ABI"
+    # 不能加引号，否则通配符不展开
+    rm -rf $SRC/*.o $SRC/*.so $SRC/*.lo $SRC/*.la 2>/dev/null || true
+  done
+  echo ">>> 清理完成！"
+  exit 0
 fi
 
 for ABI in "${TARGETS[@]}"; do
-    echo ">>> [libass] 正在编译 $ABI ..."
+  echo ">>> [libass] 正在编译 $ABI ..."
 
-    SRC_DIR="$SRC_BASE/${SRC_BASENAME}-${ABI}"
-    BUILD_DIR="$SRC_DIR/build_$ABI"
-    INSTALL_DIR="$BUILD_BASE/$ABI"
-    rm -rf "$BUILD_DIR" "$INSTALL_DIR"
-    mkdir -p "$BUILD_DIR"
+  SRC_DIR="$SRC_BASE/${SRC_BASENAME}-${ABI}"
+  BUILD_DIR="$SRC_DIR/build_$ABI"
+  INSTALL_DIR="$BUILD_BASE/$ABI"
+  rm -rf "$BUILD_DIR" "$INSTALL_DIR"
+  mkdir -p "$BUILD_DIR" "$INSTALL_DIR"
 
-    case "$ABI" in
-        "arm64-v8a")
-            HOST="aarch64-linux-android"
-            CC="$TOOLCHAIN/bin/${HOST}${ANDROID_API}-clang"
-            CPU="armv8-a"
-            ;;
-        "armeabi-v7a")
-            HOST="arm-linux-androideabi"
-            CC="$TOOLCHAIN/bin/armv7a-linux-androideabi${ANDROID_API}-clang"
-            CPU="armv7-a"
-            ;;
-        *)
-            echo "不支持的 ABI: $ABI"
-            exit 1
-            ;;
-    esac
+  case "$ABI" in
+    arm64-v8a)
+      HOST="aarch64-linux-android"
+      CC_BIN="${HOST}${ANDROID_API}-clang"
+      CPU_MARCH="armv8-a"
+      ;;
+    armeabi-v7a)
+      # 与 NDK 三元组一致
+      HOST="armv7a-linux-androideabi"
+      CC_BIN="${HOST}${ANDROID_API}-clang"
+      CPU_MARCH="armv7-a"
+      ;;
+    *) echo "不支持的 ABI: $ABI"; exit 1 ;;
+  esac
 
-    # 指定依赖库的安装路径，确保只引用你自己交叉产物的 .pc 文件！
-    FREETYPE_PKG="$AXPLAYER_ROOT/android/build/freetype2/$ABI/lib/pkgconfig"
-    FRIBIDI_PKG="$AXPLAYER_ROOT/android/build/fribidi/$ABI/lib/pkgconfig"
-    HARFBUZZ_PKG="$AXPLAYER_ROOT/android/build/harfbuzz/$ABI/lib/pkgconfig"
-    ZLIB_PKG="$AXPLAYER_ROOT/android/build/zlib/$ABI/lib/pkgconfig"
-    FONTCONFIG_PKG="$AXPLAYER_ROOT/android/build/fontconfig/$ABI/lib/pkgconfig"
-    LIBUNIBREAK_PKG="$AXPLAYER_ROOT/android/build/libunibreak/$ABI/lib/pkgconfig"
-    PKG_CONFIG_PATH="$FREETYPE_PKG:$FRIBIDI_PKG:$HARFBUZZ_PKG:$ZLIB_PKG:$FONTCONFIG_PKG:$LIBUNIBREAK_PKG"
-    export PKG_CONFIG_PATH
-    export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"
+  # 依赖 .pc 路径
+  ICONV_PKG="$AXPLAYER_ROOT/android/build/libiconv/$ABI/lib/pkgconfig"
+  FREETYPE_PKG="$AXPLAYER_ROOT/android/build/freetype2/$ABI/lib/pkgconfig"
+  FRIBIDI_PKG="$AXPLAYER_ROOT/android/build/fribidi/$ABI/lib/pkgconfig"
+  HARFBUZZ_PKG="$AXPLAYER_ROOT/android/build/harfbuzz/$ABI/lib/pkgconfig"
+  ZLIB_PKG="$AXPLAYER_ROOT/android/build/zlib/$ABI/lib/pkgconfig"
+  LIBUNIBREAK_PKG="$AXPLAYER_ROOT/android/build/libunibreak/$ABI/lib/pkgconfig"
+#  FONTCONFIG_PKG="$AXPLAYER_ROOT/android/build/fontconfig/$ABI/lib/pkgconfig" # 可能不存在
 
-    echo "PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
-    echo "PKG_CONFIG_LIBDIR: $PKG_CONFIG_LIBDIR"
-    pkg-config --modversion freetype2 || true
-    pkg-config --modversion fribidi || true
-    pkg-config --modversion harfbuzz || true
-    pkg-config --modversion zlib || true
-    pkg-config --modversion fontconfig || true
-    pkg-config --modversion libunibreak || true
+  # 只启用我们交叉产物
+  PKG_LIST=("$ICONV_PKG" "$FREETYPE_PKG" "$FRIBIDI_PKG" "$HARFBUZZ_PKG" "$ZLIB_PKG" "$LIBUNIBREAK_PKG")
+  [ -d "$FONTCONFIG_PKG" ] && PKG_LIST+=("$FONTCONFIG_PKG")
+  PKG_CONFIG_PATH="$(IFS=:; echo "${PKG_LIST[*]}")"
+  export PKG_CONFIG_PATH
+  export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"
 
-    pkg-config --libs --cflags zlib
-    pkg-config --libs --cflags freetype2
-    pkg-config --libs --cflags fribidi
-    pkg-config --libs --cflags harfbuzz
-    pkg-config --libs --cflags fontconfig
-    pkg-config --libs --cflags libunibreak
+  echo "PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
+  pkg-config --modversion freetype2 || true
+  pkg-config --modversion fribidi || true
+  pkg-config --modversion harfbuzz || true
+  pkg-config --modversion libunibreak || true
+#  pkg-config --modversion fontconfig || echo "(fontconfig: not found, will disable)"
 
-    cd "$SRC_DIR"
-    [ -f Makefile ] && make distclean || true
-    [ -f configure ] || ./autogen.sh
+  # 条件开关
+  ENABLE_FONTCONFIG="--disable-fontconfig"
+#  if pkg-config --exists fontconfig 2>/dev/null; then
+#    ENABLE_FONTCONFIG="--enable-fontconfig"
+#    echo " [FOUND] fontconfig (启用)"
+#  else
+#    ENABLE_FONTCONFIG="--disable-fontconfig"
+#    echo " [MISS ] fontconfig (禁用)"
+#  fi
 
-    export PATH="$TOOLCHAIN/bin:$PATH"
-    export CC="$CC"
-    export AR="$TOOLCHAIN/bin/llvm-ar"
-    export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
-    export STRINGS="$TOOLCHAIN/bin/llvm-strings"
-    [ ! -x "$STRINGS" ] && export STRINGS="$(which strings)"
-    OPTIMIZE_CFLAGS="-march=$CPU"
-    export CFLAGS="-Os -fpic -fdeclspec $OPTIMIZE_CFLAGS"
-    export CPPFLAGS="-Os -fpic -fdeclspec $OPTIMIZE_CFLAGS"
-    export EXTRA_CFLAGS="-O2 -g0"
-    export EXTRA_CXXFLAGS="-O2 -g0"
+  # harfbuzz 强烈建议开启（若 .pc 存在）
+  ENABLE_HB=""
+  if pkg-config --exists harfbuzz 2>/dev/null; then
+    ENABLE_HB="--enable-harfbuzz"
+    echo " [FOUND] harfbuzz (启用)"
+  else
+    ENABLE_HB="--disable-harfbuzz"
+    echo " [MISS ] harfbuzz (禁用)"
+  fi
 
-    cd "$BUILD_DIR"
-    "$SRC_DIR/configure" \
-        --host="$HOST" \
-        --prefix="$INSTALL_DIR" \
-        --enable-static \
-        --disable-shared \
-        --with-pic \
-        CC="$CC"
+  export PATH="$TOOLCHAIN/bin:$PATH"
+  export CC="$TOOLCHAIN/bin/$CC_BIN"
+  export AR="$TOOLCHAIN/bin/llvm-ar"
+  export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
+  export STRINGS="$TOOLCHAIN/bin/llvm-strings"
+  [ -x "$STRINGS" ] || STRINGS="$(which strings || true)"
 
-    make -j$JOBS
-    make install
+  # -fPIC 必须；加 section 拆分便于后续 --gc-sections
+  COMMON_CFLAGS="-Os -fPIC -ffunction-sections -fdata-sections -fdeclspec -march=$CPU_MARCH"
+  export CFLAGS="$COMMON_CFLAGS"
+  export CPPFLAGS="$COMMON_CFLAGS"
+
+  # 源目录准备（若无 configure 则跑 autogen）
+  cd "$SRC_DIR"
+  [ -f Makefile ] && make distclean || true
+  [ -f configure ] || ./autogen.sh
+
+  # out-of-tree 配置与构建
+  cd "$BUILD_DIR"
+  "$SRC_DIR/configure" \
+    --host="$HOST" \
+    --prefix="$INSTALL_DIR" \
+    --enable-static \
+    --disable-shared \
+    --with-pic \
+    $ENABLE_FONTCONFIG \
+    $ENABLE_HB \
+    --disable-coretext \
+    --disable-directwrite \
+    CC="$CC" AR="$AR" RANLIB="$RANLIB"
+
+  make -j"$JOBS"
+  make install
+
+  echo ">>> [$ABI] 输出: $INSTALL_DIR/lib/libass.a"
 done
 
 echo ">>> libass 全部 ABI 静态库编译完成！"
