@@ -266,14 +266,14 @@ for ABI in "${TARGETS[@]}"; do
   EXTRA_LINK_FIX=""
   [ "$ABI" = "armeabi-v7a" ] && EXTRA_LINK_FIX="-Wl,--fix-cortex-a8"
 
-  "$CC" --sysroot="$TOOLCHAIN/sysroot" -shared -o "$OUT_SO" \
+  "$CXX" --sysroot="$TOOLCHAIN/sysroot" -shared -o "$OUT_SO" \
     -Wl,-soname,libAXFCore.so \
     -Wl,--no-undefined -Wl,--gc-sections \
     -Wl,--no-as-needed \
     -Wl,--whole-archive \
       "${FF_A[@]}" \
-      "${THIRD_A[@]}" \
     -Wl,--no-whole-archive \
+      "${THIRD_A[@]}" \
     -llog -landroid -ldl -lmediandk \
     -lomp -lm -lz \
     -static-libstdc++ \
