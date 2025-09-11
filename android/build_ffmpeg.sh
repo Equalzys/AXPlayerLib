@@ -162,7 +162,14 @@ for ABI in "${TARGETS[@]}"; do
 
   EXTRA_LIBS="-lm -lomp"
   EXTRA_ASMFLAGS="-fPIC"
+  export CFLAGS="-Os -fPIC -DANDROID $EXTRA_CFLAGS"
+  export CXXFLAGS="-Os -fPIC -DANDROID"
+  export CPPFLAGS="-fPIC"
   export ASFLAGS="-fPIC"
+
+  # 关键：让汇编走 clang 这条线，确保吃到 -fPIC
+  # （FFmpeg 的很多 .S 实际由 CC 预处理+编译）
+  FF_AS="$CC"
 
   "$FFMPEG_SRC_DIR/configure" \
     --prefix="$INSTALL_DIR" \
@@ -172,6 +179,7 @@ for ABI in "${TARGETS[@]}"; do
     --cc="$CC" \
     --nm="$NM" \
     --ar="$AR" \
+    --as="$FF_AS" \
     --ranlib="$RANLIB" \
     --pkg-config=pkg-config \
     --pkg-config-flags="--static" \
