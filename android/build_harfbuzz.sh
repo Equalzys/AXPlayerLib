@@ -83,6 +83,9 @@ for ABI in "${TARGETS[@]}"; do
 
   cd "$BUILD_DIR"
 
+  FT_LIB="$FREETYPE_PREFIX/lib/libfreetype.a"
+  FT_INC="$FREETYPE_PREFIX/include/freetype2"
+
   cmake "$SRC_DIR" \
     "${GEN_ARGS[@]}" \
     -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
@@ -93,6 +96,8 @@ for ABI in "${TARGETS[@]}"; do
     -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
     -DCMAKE_PREFIX_PATH="$FREETYPE_PREFIX;$ZLIB_PREFIX" \
     -DHB_HAVE_FREETYPE=ON \
+    -DFREETYPE_LIBRARY="$FT_LIB" \
+    -DFREETYPE_INCLUDE_DIRS="$FT_INC" \
     -DHB_HAVE_GLIB=OFF \
     -DHB_HAVE_GOBJECT=OFF \
     -DHB_HAVE_ICU=OFF \
