@@ -161,11 +161,12 @@ for ABI in "${TARGETS[@]}"; do
 
   # ★ 关键：统一 NO_PIE，用于彻底禁止 -fPIE/-pie 被夹带进来
   NO_PIE="-fno-pie -fno-PIE"
-  # ★ 关键：全路径强制 PIC
-  export CFLAGS="-Os -fPIC -DANDROID $NO_PIE $EXTRA_CFLAGS"
-  export CXXFLAGS="-Os -fPIC -DANDROID $NO_PIE"
+  PIC_DEFS="-fPIC -fvisibility=hidden -DPIC -DCONFIG_PIC=1"
+
+  export CFLAGS="-Os $PIC_DEFS -DANDROID $NO_PIE $EXTRA_CFLAGS"
+  export CXXFLAGS="-Os $PIC_DEFS -DANDROID $NO_PIE"
   export CPPFLAGS="-fPIC"
-  export ASFLAGS="-fPIC"
+  export ASFLAGS="-fPIC -DPIC -DCONFIG_PIC=1"
 
   # 让 .S 也走 clang，确保 -fPIC 生效
   FF_AS="$CC"
