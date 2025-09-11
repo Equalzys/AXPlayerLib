@@ -56,16 +56,20 @@ for ABI in "${TARGETS[@]}"; do
   rm -rf "$BUILD_DIR" "$INSTALL_DIR"
   mkdir -p "$BUILD_DIR" "$INSTALL_DIR"
 
+  SYSROOT="$TOOLCHAIN/sysroot"
+
   case "$ABI" in
     arm64-v8a)
       HOST="aarch64-linux-android"
       CC_BIN="${HOST}${ANDROID_API}-clang"
       CPU_MARCH="armv8-a"
+      ABI_EXTRA_CFLAGS=""
       ;;
     armeabi-v7a)
       HOST="armv7a-linux-androideabi"   # 与 NDK 三元组一致
       CC_BIN="${HOST}${ANDROID_API}-clang"
       CPU_MARCH="armv7-a"
+      ABI_EXTRA_CFLAGS="-mthumb -mfloat-abi=softfp -mfpu=neon"
       ;;
     *) echo "不支持的 ABI: $ABI"; exit 1 ;;
   esac
@@ -88,19 +92,19 @@ for ABI in "${TARGETS[@]}"; do
   export CC="$TOOLCHAIN/bin/$CC_BIN"
   export AR="$TOOLCHAIN/bin/llvm-ar"
   export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
-  export STRINGS="$TOOLCHAIN/bin/llvm-strings"
-  [ -x "$STRINGS" ] || STRINGS="$(which strings || true)"
+  export NM="$TOOLCHAIN/bin/llvm-nm"
+  export STRIP="$TOOLCHAIN/bin/llvm-strip"
+  export LD="$TOOLCHAIN/bin/ld.lld"
 
-  # 通用编译旗标（先定义，再在其基础上追加 iconv 的 -I）
-  COMMON_CFLAGS="-Os -fPIC -ffunction-sections -fdata-sections -fdeclspec -march=$CPU_MARCH"
-  export CFLAGS="$COMMON_CFLAGS"
-  # 注意：不要覆盖，基于已有的 CPPFLAGS 追加
+  COMMON_CFLAGS="-Os -fPIC -ffunction-sections -fdata-sections -fdeclspec -march=$CPU_MARCH $ABI_EXTRA_CFLAGS --sysroot=$SYSROOT"
+  export CFLAGS="${CFLAGS:-} $COMMON_CFLAGS"
   export CPPFLAGS="${CPPFLAGS:-} $COMMON_CFLAGS"
+  export LDFLAGS="${LDFLAGS:-} --sysroot=$SYSROOT"
 
-  # 让 configure 的 AC_SEARCH_LIBS 能找到 libiconv：追加 -I/-L/-l
+  # 让 AC_SEARCH_LIBS 找到 libiconv
   ICONV_PREFIX="$AXPLAYER_ROOT/android/build/libiconv/$ABI"
   export CPPFLAGS="${CPPFLAGS} -I$ICONV_PREFIX/include"
-  export LDFLAGS="${LDFLAGS:-} -L$ICONV_PREFIX/lib"
+  export LDFLAGS="${LDFLAGS} -L$ICONV_PREFIX/lib"
   export LIBS="${LIBS:-} -liconv -lcharset"
 
   echo "PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
@@ -126,7 +130,7 @@ for ABI in "${TARGETS[@]}"; do
     --disable-require-system-font-provider \
     --disable-coretext \
     --disable-directwrite \
-    CC="$CC" AR="$AR" RANLIB="$RANLIB"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" LD="$LD" NM="$NM" STRIP="$STRIP"
 
   make -j"$JOBS"
   make install
