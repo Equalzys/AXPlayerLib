@@ -268,7 +268,6 @@ for ABI in "${TARGETS[@]}"; do
       "${THIRD_A[@]}" \
     -Wl,--no-whole-archive \
     -llog -landroid -ldl -lmediandk \
-    -static-libstdc++ \
     $EXTRA_LINK_FIX
 
   "$TOOLCHAIN/bin/llvm-strip" --strip-unneeded "$OUT_SO" || true
