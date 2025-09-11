@@ -251,12 +251,6 @@ for ABI in "${TARGETS[@]}"; do
   EXTRA_LINK_FIX=""
   [ "$ABI" = "armeabi-v7a" ] && EXTRA_LINK_FIX="-Wl,--fix-cortex-a8"
 
-  "$TOOLCHAIN/bin/llvm-ar" t "$FFLIB/libavutil.a" | grep tx_float_neon.o && \
-  "$TOOLCHAIN/bin/llvm-objdump" -f -d \
-      --no-show-raw-insn \
-      -j .text \
-      <( "$TOOLCHAIN/bin/llvm-ar" x -o /dev/stdout "$FFLIB/libavutil.a" libavutil/aarch64/tx_float_neon.o ) | head
-
   "$CC" -lm -lz -shared --sysroot="$TOOLCHAIN/sysroot" -shared -o "$OUT_SO" \
     -Wl,-soname,libAXFCore.so \
     -Wl,--no-undefined -Wl,--gc-sections \
