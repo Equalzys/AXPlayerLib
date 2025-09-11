@@ -83,8 +83,23 @@ for ABI in "${TARGETS[@]}"; do
   export PKG_CONFIG_PATH
   export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"
 
+  # 工具链
+  export PATH="$TOOLCHAIN/bin:$PATH"
+  export CC="$TOOLCHAIN/bin/$CC_BIN"
+  export AR="$TOOLCHAIN/bin/llvm-ar"
+  export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
+  export STRINGS="$TOOLCHAIN/bin/llvm-strings"
+  [ -x "$STRINGS" ] || STRINGS="$(which strings || true)"
+
+  # 通用编译旗标（先定义，再在其基础上追加 iconv 的 -I）
+  COMMON_CFLAGS="-Os -fPIC -ffunction-sections -fdata-sections -fdeclspec -march=$CPU_MARCH"
+  export CFLAGS="$COMMON_CFLAGS"
+  # 注意：不要覆盖，基于已有的 CPPFLAGS 追加
+  export CPPFLAGS="${CPPFLAGS:-} $COMMON_CFLAGS"
+
+  # 让 configure 的 AC_SEARCH_LIBS 能找到 libiconv：追加 -I/-L/-l
   ICONV_PREFIX="$AXPLAYER_ROOT/android/build/libiconv/$ABI"
-  export CPPFLAGS="$CPPFLAGS -I$ICONV_PREFIX/include"
+  export CPPFLAGS="${CPPFLAGS} -I$ICONV_PREFIX/include"
   export LDFLAGS="${LDFLAGS:-} -L$ICONV_PREFIX/lib"
   export LIBS="${LIBS:-} -liconv -lcharset"
 
@@ -93,18 +108,6 @@ for ABI in "${TARGETS[@]}"; do
   pkg-config --modversion fribidi || true
   pkg-config --modversion harfbuzz || true
   pkg-config --modversion libunibreak || true
-
-  export PATH="$TOOLCHAIN/bin:$PATH"
-  export CC="$TOOLCHAIN/bin/$CC_BIN"
-  export AR="$TOOLCHAIN/bin/llvm-ar"
-  export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
-  export STRINGS="$TOOLCHAIN/bin/llvm-strings"
-  [ -x "$STRINGS" ] || STRINGS="$(which strings || true)"
-
-  # -fPIC 必须；加 section 拆分便于后续 --gc-sections
-  COMMON_CFLAGS="-Os -fPIC -ffunction-sections -fdata-sections -fdeclspec -march=$CPU_MARCH"
-  export CFLAGS="$COMMON_CFLAGS"
-  export CPPFLAGS="$COMMON_CFLAGS"
 
   # 源目录准备（若无 configure 则跑 autogen）
   cd "$SRC_DIR"
