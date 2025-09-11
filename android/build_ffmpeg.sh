@@ -153,22 +153,21 @@ for ABI in "${TARGETS[@]}"; do
   echo ">>> freetype: $(pkg-config --modversion freetype2 2>&1 || true)"
 
   export PATH="$TOOLCHAIN/bin:$PATH"
-  export CC="$CC"; export CXX="$CXX"
   export AR="$TOOLCHAIN/bin/llvm-ar"
   export NM="$TOOLCHAIN/bin/llvm-nm"
   export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
   export STRINGS="$TOOLCHAIN/bin/llvm-strings"
   [ -x "$STRINGS" ] || STRINGS="$(which strings || true)"
 
-  EXTRA_LIBS="-lm -lomp"
-  EXTRA_ASMFLAGS="-fPIC"
-  export CFLAGS="-Os -fPIC -DANDROID $EXTRA_CFLAGS"
-  export CXXFLAGS="-Os -fPIC -DANDROID"
+  # ★ 关键：统一 NO_PIE，用于彻底禁止 -fPIE/-pie 被夹带进来
+  NO_PIE="-fno-pie -fno-PIE"
+  # ★ 关键：全路径强制 PIC
+  export CFLAGS="-Os -fPIC -DANDROID $NO_PIE $EXTRA_CFLAGS"
+  export CXXFLAGS="-Os -fPIC -DANDROID $NO_PIE"
   export CPPFLAGS="-fPIC"
   export ASFLAGS="-fPIC"
 
-  # 关键：让汇编走 clang 这条线，确保吃到 -fPIC
-  # （FFmpeg 的很多 .S 实际由 CC 预处理+编译）
+  # 让 .S 也走 clang，确保 -fPIC 生效
   FF_AS="$CC"
 
   "$FFMPEG_SRC_DIR/configure" \
@@ -177,9 +176,10 @@ for ABI in "${TARGETS[@]}"; do
     --arch="$ARCH" \
     --cpu="$CPU" \
     --cc="$CC" \
+    --cxx="$CXX" \
+    --as="$FF_AS" \
     --nm="$NM" \
     --ar="$AR" \
-    --as="$FF_AS" \
     --ranlib="$RANLIB" \
     --pkg-config=pkg-config \
     --pkg-config-flags="--static" \
@@ -205,10 +205,14 @@ for ABI in "${TARGETS[@]}"; do
     --enable-libsoxr \
     --enable-openssl \
     --enable-zlib \
-    --extra-cflags="-Os -fPIC -DANDROID $EXTRA_CFLAGS" \
-    --extra-ldflags="$EXTRA_LDFLAGS" \
-    --extra-libs="$EXTRA_LIBS" \
+    --extra-cflags="-Os -fPIC -DANDROID $NO_PIE $EXTRA_CFLAGS" \
+    --extra-cxxflags="-Os -fPIC -DANDROID $NO_PIE" \
+    --extra-ldflags="$EXTRA_LDFLAGS $NO_PIE" \
+    --extra-libs="-lm -lomp" \
     --disable-debug
+
+  # 避免外部 LDFLAGS 污染
+  unset LDFLAGS || true
 
   make -j"$JOBS"
   make install
@@ -259,7 +263,7 @@ for ABI in "${TARGETS[@]}"; do
   EXTRA_LINK_FIX=""
   [ "$ABI" = "armeabi-v7a" ] && EXTRA_LINK_FIX="-Wl,--fix-cortex-a8"
 
-  "$CC" -lm -lz -shared --sysroot="$TOOLCHAIN/sysroot" -shared -o "$OUT_SO" \
+  "$CC" --sysroot="$TOOLCHAIN/sysroot" -shared -o "$OUT_SO" \
     -Wl,-soname,libAXFCore.so \
     -Wl,--no-undefined -Wl,--gc-sections \
     -Wl,--no-as-needed \
@@ -268,6 +272,7 @@ for ABI in "${TARGETS[@]}"; do
       "${THIRD_A[@]}" \
     -Wl,--no-whole-archive \
     -llog -landroid -ldl -lmediandk \
+    -lm -lz \
     $EXTRA_LINK_FIX
 
   "$TOOLCHAIN/bin/llvm-strip" --strip-unneeded "$OUT_SO" || true
