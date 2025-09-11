@@ -268,14 +268,11 @@ for ABI in "${TARGETS[@]}"; do
 
   "$CXX" --sysroot="$TOOLCHAIN/sysroot" -shared -o "$OUT_SO" \
     -Wl,-soname,libAXFCore.so \
-    -Wl,--no-undefined -Wl,--gc-sections \
-    -Wl,--no-as-needed \
-    -Wl,--whole-archive \
-      "${FF_A[@]}" \
-    -Wl,--no-whole-archive \
-      "${THIRD_A[@]}" \
-    -llog -landroid -ldl -lmediandk \
-    -lomp -lm -lz \
+    -Wl,--no-undefined -Wl,--gc-sections -Wl,--no-as-needed \
+    -Wl,-Map,"$OUT_SO.map" -Wl,--cref \
+    -Wl,--whole-archive  "${FF_A[@]}"  -Wl,--no-whole-archive \
+    "${THIRD_A[@]}" \
+    -llog -landroid -ldl -lmediandk -lomp -lm -lz \
     -static-libstdc++ \
     $EXTRA_LINK_FIX
 
