@@ -63,8 +63,7 @@ for ABI in "${TARGETS[@]}"; do
       CPU_MARCH="armv8-a"
       ;;
     armeabi-v7a)
-      # 与 NDK 三元组一致
-      HOST="armv7a-linux-androideabi"
+      HOST="armv7a-linux-androideabi"   # 与 NDK 三元组一致
       CC_BIN="${HOST}${ANDROID_API}-clang"
       CPU_MARCH="armv7-a"
       ;;
@@ -78,11 +77,8 @@ for ABI in "${TARGETS[@]}"; do
   HARFBUZZ_PKG="$AXPLAYER_ROOT/android/build/harfbuzz/$ABI/lib/pkgconfig"
   ZLIB_PKG="$AXPLAYER_ROOT/android/build/zlib/$ABI/lib/pkgconfig"
   LIBUNIBREAK_PKG="$AXPLAYER_ROOT/android/build/libunibreak/$ABI/lib/pkgconfig"
-#  FONTCONFIG_PKG="$AXPLAYER_ROOT/android/build/fontconfig/$ABI/lib/pkgconfig" # 可能不存在
 
-  # 只启用我们交叉产物
   PKG_LIST=("$ICONV_PKG" "$FREETYPE_PKG" "$FRIBIDI_PKG" "$HARFBUZZ_PKG" "$ZLIB_PKG" "$LIBUNIBREAK_PKG")
-#  [ -d "$FONTCONFIG_PKG" ] && PKG_LIST+=("$FONTCONFIG_PKG")
   PKG_CONFIG_PATH="$(IFS=:; echo "${PKG_LIST[*]}")"
   export PKG_CONFIG_PATH
   export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"
@@ -92,27 +88,6 @@ for ABI in "${TARGETS[@]}"; do
   pkg-config --modversion fribidi || true
   pkg-config --modversion harfbuzz || true
   pkg-config --modversion libunibreak || true
-#  pkg-config --modversion fontconfig || echo "(fontconfig: not found, will disable)"
-
-  # 条件开关
-  ENABLE_FONTCONFIG="--disable-fontconfig"
-#  if pkg-config --exists fontconfig 2>/dev/null; then
-#    ENABLE_FONTCONFIG="--enable-fontconfig"
-#    echo " [FOUND] fontconfig (启用)"
-#  else
-#    ENABLE_FONTCONFIG="--disable-fontconfig"
-#    echo " [MISS ] fontconfig (禁用)"
-#  fi
-
-  # harfbuzz 强烈建议开启（若 .pc 存在）
-  ENABLE_HB=""
-  if pkg-config --exists harfbuzz 2>/dev/null; then
-    ENABLE_HB="--enable-harfbuzz"
-    echo " [FOUND] harfbuzz (启用)"
-  else
-    ENABLE_HB="--disable-harfbuzz"
-    echo " [MISS ] harfbuzz (禁用)"
-  fi
 
   export PATH="$TOOLCHAIN/bin:$PATH"
   export CC="$TOOLCHAIN/bin/$CC_BIN"
@@ -139,8 +114,8 @@ for ABI in "${TARGETS[@]}"; do
     --enable-static \
     --disable-shared \
     --with-pic \
-    $ENABLE_FONTCONFIG \
-    $ENABLE_HB \
+    --disable-fontconfig \
+    --disable-require-system-font-provider \
     --disable-coretext \
     --disable-directwrite \
     CC="$CC" AR="$AR" RANLIB="$RANLIB"
