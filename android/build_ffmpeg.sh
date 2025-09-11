@@ -132,6 +132,7 @@ for ABI in "${TARGETS[@]}"; do
   # 仅使用我们提供的 .pc
   PKGCFG=""
   for d in \
+    "$THREE_BUILD_BASE/libiconv/$ABI/lib/pkgconfig" \   # ★ 新增这一行
     "$OPENSSL_PREFIX/lib/pkgconfig" \
     "$ZLIB_PREFIX/lib/pkgconfig" \
     "$X264_PREFIX/lib/pkgconfig" \
@@ -150,6 +151,14 @@ for ABI in "${TARGETS[@]}"; do
   done
   export PKG_CONFIG_PATH="$PKGCFG"
   export PKG_CONFIG_LIBDIR="$PKGCFG"
+
+  # —— 诊断：确保能发现 libass ——
+  echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
+  pkg-config --print-errors --modversion libass || {
+    echo "!!! pkg-config 无法找到 libass；列出目录内容以便排查："
+    echo ">>> $(echo "$PKGCFG" | tr ':' '\n' | xargs -I{} sh -c 'echo {}; ls -l {} || true')"
+    exit 1
+  }
 
   export PATH="$TOOLCHAIN/bin:$PATH"
   export CC="$CC"; export CXX="$CXX"
