@@ -198,7 +198,6 @@ for ABI in "${TARGETS[@]}"; do
     --enable-openssl \
     --enable-zlib \
     --extra-cflags="-Os -fPIC -DANDROID $EXTRA_CFLAGS" \
-    --extra-asmflags="$EXTRA_ASMFLAGS" \
     --extra-ldflags="$EXTRA_LDFLAGS" \
     --extra-libs="$EXTRA_LIBS" \
     --disable-debug
@@ -258,7 +257,7 @@ for ABI in "${TARGETS[@]}"; do
       -j .text \
       <( "$TOOLCHAIN/bin/llvm-ar" x -o /dev/stdout "$FFLIB/libavutil.a" libavutil/aarch64/tx_float_neon.o ) | head
 
-  "$CC" -shared -o "$OUT_SO" \
+  "$CC" -lm -lz -shared --sysroot="$TOOLCHAIN/sysroot" -shared -o "$OUT_SO" \
     -Wl,-soname,libAXFCore.so \
     -Wl,--no-undefined -Wl,--gc-sections \
     -Wl,--no-as-needed \
