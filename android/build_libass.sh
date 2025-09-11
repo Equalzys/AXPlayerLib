@@ -61,13 +61,13 @@ for ABI in "${TARGETS[@]}"; do
   case "$ABI" in
     arm64-v8a)
       HOST="aarch64-linux-android"
-      CC_BIN="${HOST}${ANDROID_API}-clang"
+      CC_BIN="$TOOLCHAIN/bin/${HOST}${ANDROID_API}-clang"
       CPU_MARCH="armv8-a"
       ABI_EXTRA_CFLAGS=""
       ;;
     armeabi-v7a)
-      HOST="armv7a-linux-androideabi"   # 与 NDK 三元组一致
-      CC_BIN="${HOST}${ANDROID_API}-clang"
+      HOST="arm-linux-androideabi"   # 与 NDK 三元组一致
+      CC_BIN="$TOOLCHAIN/bin/armv7a-linux-androideabi${ANDROID_API}-clang"
       CPU_MARCH="armv7-a"
       ABI_EXTRA_CFLAGS="-mthumb -mfloat-abi=softfp -mfpu=neon"
       ;;
@@ -89,7 +89,7 @@ for ABI in "${TARGETS[@]}"; do
 
   # 工具链
   export PATH="$TOOLCHAIN/bin:$PATH"
-  export CC="$TOOLCHAIN/bin/$CC_BIN"
+  export CC="$CC_BIN"
   export AR="$TOOLCHAIN/bin/llvm-ar"
   export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
   export NM="$TOOLCHAIN/bin/llvm-nm"
