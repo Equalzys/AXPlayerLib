@@ -125,14 +125,32 @@ for name in "${LIB_NAMES[@]}"; do
   for ABI in "${ARCHS[@]}"; do
     DST_PATH="$ANDROID_DIR/${name}-${ABI}"
     rm -rf "$DST_PATH"
-#    rsync -a \
-#      --exclude='.git' --exclude='.svn' \
-#      --exclude='bin' --exclude='build*' \
-#      --exclude='out' --exclude='*.o' --exclude='*.a' --exclude='*.so' \
-#      "$SRC_PATH/" "$DST_PATH/"
+
     rsync -a "$SRC_PATH/" "$DST_PATH/"
     echo ">>> [$name] $ABI 拷贝完成: $DST_PATH"
   done
 done
 
 echo ">>> 所有三方源码已为各 ABI 拷贝完毕！"
+
+# ====== 独立处理 SoundTouch：复制到 MediaCore/soundtouch（其余逻辑不变） ======
+MEDIA_CORE_DIR="$(pwd)/MediaCore"
+DST_SOUNDTOUCH="$MEDIA_CORE_DIR/soundtouch"
+SRC_SOUNDTOUCH="$EXTRA_DIR/SoundTouch"
+
+mkdir -p "$MEDIA_CORE_DIR"
+if [ -d "$SRC_SOUNDTOUCH" ]; then
+  echo ">>> 同步 SoundTouch 源码到 $DST_SOUNDTOUCH"
+  # 使用 rsync，排除无关目录
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete       --exclude=".git" --exclude=".github" --exclude="build" --exclude="Build*"       --exclude="cmake*" --exclude="CMake*" --exclude="docs" --exclude="examples"       --exclude="projects" --exclude="tests"       "$SRC_SOUNDTOUCH/" "$DST_SOUNDTOUCH/"
+  else
+    # 兜底：tar 管道复制
+    rm -rf "$DST_SOUNDTOUCH"
+    mkdir -p "$DST_SOUNDTOUCH"
+    (cd "$SRC_SOUNDTOUCH" && tar cf - .       --exclude .git --exclude .github --exclude build --exclude Build*       --exclude cmake* --exclude CMake* --exclude docs --exclude examples       --exclude projects --exclude tests) | (cd "$DST_SOUNDTOUCH" && tar xpf -)
+  fi
+  echo ">>> SoundTouch 同步完成：$DST_SOUNDTOUCH"
+else
+  echo "!!! 未找到 $SRC_SOUNDTOUCH ，请检查是否已完成拉取"
+fi
