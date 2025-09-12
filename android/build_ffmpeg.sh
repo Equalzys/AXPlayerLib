@@ -84,7 +84,6 @@ for ABI in "${TARGETS[@]}"; do
   HARFBUZZ_PREFIX="$THREE_BUILD_BASE/harfbuzz/$ABI"
   ZLIB_PREFIX="$THREE_BUILD_BASE/zlib/$ABI"
   SOXR_PREFIX="$THREE_BUILD_BASE/libsoxr/$ABI"
-  SOUNDTOUCH_PREFIX="$THREE_BUILD_BASE/SoundTouch/$ABI"
   OPENSSL_PREFIX="$THREE_BUILD_BASE/openssl/$ABI"
   LIBUNIBREAK_PREFIX="$THREE_BUILD_BASE/libunibreak/$ABI"
   DAV1D_PREFIX="$THREE_BUILD_BASE/dav1d/$ABI"
@@ -95,7 +94,7 @@ for ABI in "${TARGETS[@]}"; do
   for inc in \
     "$X264_PREFIX/include" "$LAME_PREFIX/include" "$ASS_PREFIX/include" \
     "$FREETYPE_PREFIX/include" "$FRIBIDI_PREFIX/include" "$HARFBUZZ_PREFIX/include" \
-    "$ZLIB_PREFIX/include" "$SOXR_PREFIX/include" "$SOUNDTOUCH_PREFIX/include" \
+    "$ZLIB_PREFIX/include" "$SOXR_PREFIX/include" \
     "$OPENSSL_PREFIX/include" "$DAV1D_PREFIX/include" \
     "$LIBUNIBREAK_PREFIX/include" "$ICONV_PREFIX/include"
   do
@@ -107,7 +106,7 @@ for ABI in "${TARGETS[@]}"; do
   for lib in \
     "$X264_PREFIX/lib" "$LAME_PREFIX/lib" "$ASS_PREFIX/lib" "$FREETYPE_PREFIX/lib" \
     "$FRIBIDI_PREFIX/lib" "$HARFBUZZ_PREFIX/lib" "$ZLIB_PREFIX/lib" "$SOXR_PREFIX/lib" \
-    "$SOUNDTOUCH_PREFIX/lib" "$OPENSSL_PREFIX/lib" "$DAV1D_PREFIX/lib" \
+    "$OPENSSL_PREFIX/lib" "$DAV1D_PREFIX/lib" \
     "$LIBUNIBREAK_PREFIX/lib" "$ICONV_PREFIX/lib"
   do
     [ -d "$lib" ] && EXTRA_LDFLAGS="$EXTRA_LDFLAGS -L$lib"
@@ -129,7 +128,6 @@ for ABI in "${TARGETS[@]}"; do
     "$OPENSSL_PREFIX/lib/pkgconfig" \
     "$ZLIB_PREFIX/lib/pkgconfig" \
     "$X264_PREFIX/lib/pkgconfig" \
-    "$SOUNDTOUCH_PREFIX/lib/pkgconfig" \
     "$SOXR_PREFIX/lib/pkgconfig" \
     "$LAME_PREFIX/lib/pkgconfig" \
     "$FREETYPE_PREFIX/lib/pkgconfig" \
@@ -193,10 +191,11 @@ for ABI in "${TARGETS[@]}"; do
     --enable-protocols \
     --enable-network \
     --enable-avfilter --enable-avformat --enable-avcodec \
-    --enable-swresample --enable-swscale --enable-avdevice \
+    --enable-swresample --enable-swscale \
+    --disable-avdevice --disable-postproc \
     --enable-jni --enable-mediacodec \
     --enable-libx264 \
-    --enable-libmp3lame \
+    --enable-libmp3lame --enable-encoder=libmp3lame \
     --enable-libass \
     --enable-libfreetype \
     --enable-libfribidi \
@@ -204,6 +203,15 @@ for ABI in "${TARGETS[@]}"; do
     --enable-libsoxr \
     --enable-openssl \
     --enable-zlib \
+    --enable-libdav1d --enable-decoder=libdav1d \
+    --disable-muxers \
+    --enable-muxer=mp3 --enable-muxer=hls --enable-muxer=mp4 \
+    --disable-encoders \
+    --enable-encoder=mp3 \
+    --enable-runtime-cpudetect \
+    --disable-htmlpages --disable-manpages --disable-podpages --disable-txtpages \
+    --enable-encoder=libx264 --enable-encoder=aac --enable-protocol=async \
+    --enable-nonfree --enable-decoder=opus --enable-parser=ac3 \
     --extra-cflags="-Os -fPIC -DANDROID $NO_PIE $EXTRA_CFLAGS" \
     --extra-cxxflags="-Os -fPIC -DANDROID $NO_PIE" \
     --extra-ldflags="$EXTRA_LDFLAGS $NO_PIE" \
@@ -240,7 +248,6 @@ for ABI in "${TARGETS[@]}"; do
   add_if_exist "$HARFBUZZ_PREFIX/lib/libharfbuzz.a"
   add_if_exist "$ZLIB_PREFIX/lib/libz.a"
   add_if_exist "$SOXR_PREFIX/lib/libsoxr.a"
-  add_if_exist "$SOUNDTOUCH_PREFIX/lib/libSoundTouch.a"
   add_if_exist "$OPENSSL_PREFIX/lib/libssl.a"
   add_if_exist "$OPENSSL_PREFIX/lib/libcrypto.a"
   add_if_exist "$DAV1D_PREFIX/lib/libdav1d.a"
@@ -273,7 +280,7 @@ for ABI in "${TARGETS[@]}"; do
     -static-libstdc++ \
     $EXTRA_LINK_FIX
 
-  "$TOOLCHAIN/bin/llvm-strip" --strip-unneeded "$OUT_SO" || true
+#  "$TOOLCHAIN/bin/llvm-strip" --strip-unneeded "$OUT_SO" || true
   echo ">>> [$ABI] 产物: $OUT_SO"
 done
 
