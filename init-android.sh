@@ -4,12 +4,11 @@ set -euo pipefail
 # ================== 固定分支/版本 ==================
 FFMPEG_BRANCH="release/8.0"     # 固定 FFmpeg 分支
 OPENSSL_BRANCH="openssl-3.4"
-FONTCONFIG_BRANCH="2.16.2"
 
 # ================== 三方库名及地址 ==================
 LIB_NAMES=("ffmpeg" "x264" "SoundTouch" "libmp3lame" \
   "libass" "freetype2" "fribidi" "harfbuzz" "libiconv" "zlib" "libsoxr" \
-  "openssl" "dav1d" "fontconfig" "expat" "libunibreak")
+  "openssl" "dav1d" "libunibreak")
 
 LIB_URLS=(
   "https://github.com/FFmpeg/FFmpeg.git"
@@ -25,8 +24,6 @@ LIB_URLS=(
   "https://github.com/Equalzys/soxr"
   "https://github.com/openssl/openssl.git"
   "https://code.videolan.org/videolan/dav1d.git"
-  "https://gitlab.freedesktop.org/fontconfig/fontconfig.git"
-  "https://github.com/libexpat/libexpat.git"
   "https://github.com/adah1972/libunibreak.git"
 )
 
@@ -88,10 +85,6 @@ for i in "${!LIB_NAMES[@]}"; do
 
     openssl)
       clone_branch_or_default "openssl" "$url" "$SRC_PATH" "$OPENSSL_BRANCH"
-      ;;
-
-    fontconfig)
-      clone_branch_or_default "fontconfig" "$url" "$SRC_PATH" "$FONTCONFIG_BRANCH"
       ;;
 
     x264)
