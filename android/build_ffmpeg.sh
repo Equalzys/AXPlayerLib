@@ -192,7 +192,7 @@ for ABI in "${TARGETS[@]}"; do
     --enable-network \
     --enable-avfilter --enable-avformat --enable-avcodec \
     --enable-swresample --enable-swscale \
-    --disable-avdevice --disable-postproc \
+    --disable-avdevice \
     --enable-jni --enable-mediacodec \
     --enable-libx264 \
     --enable-libmp3lame --enable-encoder=libmp3lame \
