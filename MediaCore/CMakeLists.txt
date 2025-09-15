@@ -4,28 +4,45 @@ project(AXPlayerCore)
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# ===== 项目结构 =====
+# ===================== 目录结构 =====================
 set(AX_MEDIA_CORE_DIR ${CMAKE_CURRENT_LIST_DIR})
 set(AX_PLAYER_DIR     ${AX_MEDIA_CORE_DIR}/player)
 set(AX_SOUNDTOUCH_DIR ${AX_MEDIA_CORE_DIR}/soundtouch)
+set(AX_JNI_DIR        ${AX_MEDIA_CORE_DIR}/jni)
 
-# ===== 头文件路径 =====
+# ===================== 外部参数 =====================
+# AXFCORE_BASE 指向 FFmpeg 安装产物（含 include/ 与 libAXFCore.so）
+# 默认为 ../android/build/ffmpeg
+if(NOT DEFINED AXFCORE_BASE)
+    set(AXFCORE_BASE "${CMAKE_SOURCE_DIR}/../android/build/ffmpeg")
+endif()
+
+message(STATUS "ANDROID_ABI=${ANDROID_ABI}")
+message(STATUS "AXFCORE_BASE=${AXFCORE_BASE}")
+
+# ===================== 头文件路径 =====================
+# 仅引入必要头：播放器自身 + SoundTouch + FFmpeg 头
 include_directories(
         ${AX_PLAYER_DIR}/include
-        ${AX_SOUNDTOUCH_DIR}/include        # SoundTouch 官方 include（通常为 include/SoundTouch.h）
-        ${AX_SOUNDTOUCH_DIR}/source         # 有的版本头在 source 里也会引用
+        ${AX_SOUNDTOUCH_DIR}/include
+        ${AX_SOUNDTOUCH_DIR}/source
+        ${AXFCORE_BASE}/${ANDROID_ABI}/include        # FFmpeg 头 (libavcodec/libavformat/libavutil/libswresample/libswscale)
 )
 
-# ===== 核心播放器源码 =====
+# ===================== 源文件收集 =====================
+# 播放器核心
 file(GLOB AXPLAYER_SRC
         ${AX_PLAYER_DIR}/src/*.cpp
         ${AX_PLAYER_DIR}/src/gl/*.cpp
-        ${AX_MEDIA_CORE_DIR}/jni/*.cpp
         )
 
-# ===== SoundTouch 源码收集（核心算法文件）=====
-# 典型 SoundTouch 目录结构：include/  与  source/SoundTouch/*.cpp
-# 如果你的版本路径不同，请按实际调整。
+# JNI 桥
+file(GLOB AXPLAYER_JNI_SRC
+        ${AX_JNI_DIR}/*.cpp
+        )
+
+# SoundTouch 核心（通用实现；不引入 x86 SSE 文件）
+# 如果你的 soundtouch 目录结构不同，请按实际调整下面路径
 file(GLOB SOUNDTOUCH_SRC
         ${AX_SOUNDTOUCH_DIR}/source/SoundTouch/AAFilter.cpp
         ${AX_SOUNDTOUCH_DIR}/source/SoundTouch/BPMDetect.cpp
@@ -40,19 +57,32 @@ file(GLOB SOUNDTOUCH_SRC
         ${AX_SOUNDTOUCH_DIR}/source/SoundTouch/TDStretch.cpp
         )
 
-# 避免把 x86 SSE 文件编进 Android
-# add_compile_definitions(SOUNDTOUCH_DISABLE_SIMD)  # 也可用这个宏来禁用 SIMD
-
 add_library(axplayer SHARED
         ${AXPLAYER_SRC}
+        ${AXPLAYER_JNI_SRC}
         ${SOUNDTOUCH_SRC}
         )
 
-# ===== 预编译 libAXFCore.so =====
-if(NOT DEFINED AXFCORE_BASE)
-    set(AXFCORE_BASE "${CMAKE_SOURCE_DIR}/../android/build/ffmpeg")
+# ===================== 编译选项（体积/可见性/兼容性） =====================
+# 更小体积与更少符号暴露；必要时可按模块调优
+target_compile_options(axplayer PRIVATE
+        -fvisibility=hidden
+        -ffunction-sections
+        -fdata-sections
+        -fno-exceptions
+        -fno-rtti
+        )
+
+# SoundTouch SIMD 开关（默认禁用，确保所有 ABI 稳定可编）
+option(WITH_SOUNDTOUCH_SIMD "Enable SoundTouch SIMD (NEON/SSE) if available" OFF)
+if(NOT WITH_SOUNDTOUCH_SIMD)
+    target_compile_definitions(axplayer PRIVATE SOUNDTOUCH_DISABLE_SIMD)
 endif()
+
+# ===================== 导入 libAXFCore.so 并链接 =====================
+# 仅需链接 axfcore，不需要把 libmp3lame/libass/harfbuzz/dav1d 等头文件加入本层
 add_library(axfcore SHARED IMPORTED)
+
 if(${ANDROID_ABI} STREQUAL "arm64-v8a")
     set_target_properties(axfcore PROPERTIES IMPORTED_LOCATION
             "${AXFCORE_BASE}/arm64-v8a/libAXFCore.so")
@@ -63,12 +93,7 @@ else()
     message(FATAL_ERROR "Unsupported ABI: ${ANDROID_ABI}")
 endif()
 
-# ===== 链接 & 宏 =====
-target_compile_definitions(axplayer PRIVATE
-        #SOUNDTOUCH_DISABLE_SIMD
-        #SOUNDTOUCH_FLOAT_SAMPLES=1   # 如需强制使用 float 采样，可启用
-        )
-
+# ===================== 系统库链接 =====================
 target_link_libraries(axplayer
         axfcore
         log
@@ -78,4 +103,11 @@ target_link_libraries(axplayer
         jnigraphics
         )
 
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--gc-sections")
+# 链接器优化
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--gc-sections -Wl,--exclude-libs,ALL")
+
+# ===================== 额外提示 =====================
+# 1) 如需启用 SoundTouch NEON，可在外层传入 -DWITH_SOUNDTOUCH_SIMD=ON，
+#    并根据官方实现添加 NEON 源（如果你的 soundtouch 版本带有 arm/neon 优化文件）。
+# 2) 如果 FFmpeg 的头不在 ${AXFCORE_BASE}/${ANDROID_ABI}/include，
+#    可在 Gradle 的 externalNativeBuild 里传入 -DAXFCORE_BASE=/your/path。

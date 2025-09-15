@@ -1,39 +1,122 @@
 # AXPlayerLib
 
-#### 介绍
-{**以下是 Gitee 平台说明，您可以替换此简介**
-Gitee 是 OSCHINA 推出的基于 Git 的代码托管平台（同时支持 SVN）。专为开发者提供稳定、高效、安全的云端软件开发协作平台
-无论是个人、团队、或是企业，都能够用 Gitee 实现代码托管、项目管理、协作开发。企业项目请看 [https://gitee.com/enterprises](https://gitee.com/enterprises)}
+## 安装编译工具、NDK、SDK
+### 安装必要工具
 
-#### 软件架构
-软件架构说明
+sudo apt install unzip gperf gettext autopoint cmake autoconf automake libtool meson patchelf binutils
+
+### 安装JDK
+sudo add-apt-repository ppa:openjdk-r/ppa
+sudo apt update
+sudo apt install openjdk-17-jdk
+
+### 安装SDK
+wget https://mirrors.cloud.tencent.com/AndroidSDK/commandlinetools-linux-13114758_latest.zip
+
+unzip commandlinetools-linux-13114758_latest.zip
+
+cd cmdline-tools
+
+mkdir latest
+shopt -s extglob
+mv !(latest) latest/
+
+vim ~/.bashrc
+
+输入"i"
+bashrc环境变量中添加以下内容：
+export ANDROID_HOME=~/SDK
+export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
+export PATH=$PATH:$ANDROID_HOME/platform-tools
+
+esc退出输入模式，保存退出":wq"
+source ~/.bashrc
+
+sdkmanager "platforms;android-35" "platform-tools" "build-tools;35.0.1"
 
 
-#### 安装教程
+### 安装NDK
+wget https://googledownloads.cn/android/repository/android-ndk-r28c-linux.zip
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+unzip android-ndk-r28c-linux.zip
 
-#### 使用说明
+vim ~/.bashrc
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+输入"i"
+bashrc环境变量中添加以下内容：
+export ANDROID_NDK=~/NDK/android-ndk-r28c
+export ANDROID_NDK_HOME=$ANDROID_NDK
+export NDK_HOME=$ANDROID_NDK
 
-#### 参与贡献
+esc退出输入模式，保存退出":wq"
+source ~/.bashrc
 
-1.  Fork 本仓库
-2.  新建 Feat_xxx 分支
-3.  提交代码
-4.  新建 Pull Request
+### 源码
+
+git config --global user.name 'zhangyisheng'
+git config --global user.email '215766856@qq.com'
+
+ssh-keygen -t rsa
+cat ~/.ssh/id_rsa.pub
+将秘钥保存到https://gitee.com/profile/sshkeys
+
+git clone git@gitee.com:zys.git/AXPlayerLib.git
+
+cd AXPlayerLib
+
+touch local.properties
+
+vim local.properties
+
+输入内容为自己环境SDK和NDK路径：
+sdk.dir=/root/SDK
+ndk.dir=/root/NDK/android-ndk-r28c
+ndk_toolchains=/root/NDK/android-ndk-r28c/toolchains/llvm/prebuilt/linux-x86_64
 
 
-#### 特技
+### 编译
+./init-android.sh
 
-1.  使用 Readme\_XXX.md 来支持不同的语言，例如 Readme\_en.md, Readme\_zh.md
-2.  Gitee 官方博客 [blog.gitee.com](https://blog.gitee.com)
-3.  你可以 [https://gitee.com/explore](https://gitee.com/explore) 这个地址来了解 Gitee 上的优秀开源项目
-4.  [GVP](https://gitee.com/gvp) 全称是 Gitee 最有价值开源项目，是综合评定出的优秀开源项目
-5.  Gitee 官方提供的使用手册 [https://gitee.com/help](https://gitee.com/help)
-6.  Gitee 封面人物是一档用来展示 Gitee 会员风采的栏目 [https://gitee.com/gitee-stars/](https://gitee.com/gitee-stars/)
+cd android
+
+1. 执行：
+./build_all_static_libs.sh all
+最后执行：
+./build_ffmpeg.sh all
+
+2. 或一个一个编译：
+./build_zlib.sh all
+./build_libunibreak.sh all
+./build_freetype2.sh all
+./build_iconv.sh all
+./build_libsoxr.sh all
+./build_harfbuzz.sh all
+./build_fribidi.sh all
+./build_libass.sh all
+./build_SoundTouch.sh all
+./build_openssl.sh all
+./build_x264.sh all
+./build_libmp3lame.sh all
+./build_dav1d.sh all
+最后执行：
+./build_ffmpeg.sh all
+
+
+#### 删除当前目录下的所有子目录及其内容
+ 
+删除前可以先看看要删除的目录
+find . -mindepth 1 -maxdepth 1 -type d -exec ls -d {} \;
+删除
+find . -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} +
+ 
+
+
+
+
+
+
+
+
+
+
+
