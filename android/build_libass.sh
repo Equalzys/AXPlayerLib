@@ -6,7 +6,7 @@ AXPLAYER_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC_BASENAME="libass"
 BUILD_BASE="$AXPLAYER_ROOT/android/build/libass"
 SRC_BASE="$AXPLAYER_ROOT/android"
-ARCHS=("arm64-v8a" "armeabi-v7a")
+ARCHS=("armeabi-v7a" "arm64-v8a")
 TARGETS=()
 
 usage() { echo "用法: $0 [clean|arm64|armv7a|all]"; exit 1; }
@@ -48,11 +48,16 @@ if [ "$1" = "clean" ]; then
 fi
 
 for ABI in "${TARGETS[@]}"; do
+  echo ">>> [libass] 删除变量"
+  unset CC CXX AR RANLIB LD NM STRIP \
+          CFLAGS CXXFLAGS CPPFLAGS LDFLAGS LIBS \
+          PKG_CONFIG_PATH PKG_CONFIG_LIBDIR PKG_CONFIG_SYSROOT_DIR CONFIG_SITE
   echo ">>> [libass] 正在编译 $ABI ..."
 
   SRC_DIR="$SRC_BASE/${SRC_BASENAME}-${ABI}"
   BUILD_DIR="$SRC_DIR/build_$ABI"
   INSTALL_DIR="$BUILD_BASE/$ABI"
+
   rm -rf "$BUILD_DIR" "$INSTALL_DIR"
   mkdir -p "$BUILD_DIR" "$INSTALL_DIR"
 
@@ -62,12 +67,14 @@ for ABI in "${TARGETS[@]}"; do
     arm64-v8a)
       HOST="aarch64-linux-android"
       CC_BIN="$TOOLCHAIN/bin/${HOST}${ANDROID_API}-clang"
+      CXX_BIN="$TOOLCHAIN/bin/${HOST}${ANDROID_API}-clang++"
       CPU_MARCH="armv8-a"
       ABI_EXTRA_CFLAGS=""
       ;;
     armeabi-v7a)
       HOST="arm-linux-androideabi"
       CC_BIN="$TOOLCHAIN/bin/armv7a-linux-androideabi${ANDROID_API}-clang"
+      CXX_BIN="$TOOLCHAIN/bin/armv7a-linux-androideabi${ANDROID_API}-clang++"
       CPU_MARCH="armv7-a"
       ABI_EXTRA_CFLAGS="-mthumb -mfloat-abi=softfp -mfpu=neon"
       ;;
@@ -90,6 +97,7 @@ for ABI in "${TARGETS[@]}"; do
   # 工具链
   export PATH="$TOOLCHAIN/bin:$PATH"
   export CC="$CC_BIN"
+  export CXX="$CXX_BIN"
   export AR="$TOOLCHAIN/bin/llvm-ar"
   export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
   export NM="$TOOLCHAIN/bin/llvm-nm"
@@ -130,7 +138,7 @@ for ABI in "${TARGETS[@]}"; do
     --disable-require-system-font-provider \
     --disable-coretext \
     --disable-directwrite \
-    CC="$CC" AR="$AR" RANLIB="$RANLIB" LD="$LD" NM="$NM" STRIP="$STRIP"
+    CC="$CC" CXX="$CXX" AR="$AR" RANLIB="$RANLIB" LD="$LD" NM="$NM" STRIP="$STRIP"
 
   make -j"$JOBS"
   make install

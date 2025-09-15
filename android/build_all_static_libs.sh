@@ -25,17 +25,16 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LIB_LIST=(
   build_zlib.sh
   build_libmp3lame.sh
-  build_SoundTouch.sh
   build_x264.sh
   build_dav1d.sh
   build_libsoxr.sh
   build_openssl.sh
 
   build_libunibreak.sh
+  build_freetype2.sh
   build_harfbuzz.sh
   build_iconv.sh
   build_fribidi.sh
-  build_freetype2.sh
   build_libass.sh
 )
 
