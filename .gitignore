@@ -89,3 +89,4 @@ lint/tmp/
 *.hprof
 extra/
 MediaCore/soundtouch/
+MediaCore/libyuv/

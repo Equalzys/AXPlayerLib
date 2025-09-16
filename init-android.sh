@@ -5,15 +5,27 @@ set -euo pipefail
 FFMPEG_BRANCH="release/8.0"     # 固定 FFmpeg 分支
 OPENSSL_BRANCH="openssl-3.4"
 
-# ================== 三方库名及地址 ==================
-LIB_NAMES=("ffmpeg" "x264" "SoundTouch" "libmp3lame" \
+# ================== 目录准备 ==================
+# AXPlayerLib/extra： 存放三方源码的目录
+ROOT_DIR="$(pwd)"
+EXTRA_DIR="$ROOT_DIR/extra"
+# AXPlayerLib/android：编译三方源码的目录（按 ABI 展开）
+ANDROID_DIR="$ROOT_DIR/android"
+# AXPlayerLib/MediaCore：可直接编进 libAXPlayer.so 的源码
+MEDIA_CORE_DIR="$ROOT_DIR/MediaCore"
+
+mkdir -p "$EXTRA_DIR" "$ANDROID_DIR" "$MEDIA_CORE_DIR"
+
+ARCHS=("arm64-v8a" "armeabi-v7a")
+
+# ================== 三方库名及地址（会为每个 ABI 拷贝到 android/*，不包含 soundtouch/libyuv） ==================
+LIB_NAMES=("ffmpeg" "x264" "libmp3lame" \
   "libass" "freetype2" "fribidi" "harfbuzz" "libiconv" "zlib" "libsoxr" \
   "openssl" "dav1d" "libunibreak")
 
 LIB_URLS=(
   "https://github.com/FFmpeg/FFmpeg.git"
   "https://code.videolan.org/videolan/x264.git"
-  "https://codeberg.org/soundtouch/soundtouch"
   "https://github.com/rbrito/lame.git"
   "https://github.com/libass/libass.git"
   "https://gitlab.freedesktop.org/freetype/freetype.git"
@@ -27,25 +39,25 @@ LIB_URLS=(
   "https://github.com/adah1972/libunibreak.git"
 )
 
-# ================== 目录准备 ==================
-EXTRA_DIR="$(pwd)/extra"
-ANDROID_DIR="$(pwd)/android"
-mkdir -p "$EXTRA_DIR" "$ANDROID_DIR"
-
-ARCHS=("arm64-v8a" "armeabi-v7a")
+# ================== MediaCore 专用源码（仅拷贝到 MediaCore/*，不展开到 android/*） ==================
+MC_NAMES=("soundtouch" "libyuv")
+MC_URLS=(
+  "https://codeberg.org/soundtouch/soundtouch"                 # -> extra/soundtouch
+  "https://chromium.googlesource.com/external/libyuv"          # -> extra/libyuv
+)
 
 echo ">>> 开始拉取三方源码到 $EXTRA_DIR ..."
 
-# ================== 函数：克隆/更新 Git 仓库 ==================
+# ================== 公共函数 ==================
 clone_branch_or_default() {
-  local name="$1" url="$2" dst="$3" branch="$4"
+  local name="$1" url="$2" dst="$3" branch="${4:-}"
 
   if [ -d "$dst/.git" ]; then
     echo ">>> [$name] 已存在，跳过克隆。"
     return 0
   fi
 
-  if [ -n "$branch" ]; then
+  if [ -n "${branch}" ]; then
     echo ">>> 正在克隆 $name 分支/标签: $branch ..."
     git clone --depth=1 --branch "$branch" "$url" "$dst" || {
       echo "!!! 克隆 $name 分支/标签 '$branch' 失败，请检查网络或仓库地址。"
@@ -54,14 +66,53 @@ clone_branch_or_default() {
   else
     echo ">>> 正在克隆 $name 默认分支 ..."
     git clone --depth=1 "$url" "$dst" || {
-      echo "!!! 克隆 $name 失败，请检查网络或仓库地址。"
+      echo "!!! 克隆 $name 失败，请检查网络或仓库地址：$url"
       exit 1
     }
   fi
   echo ">>> [$name] 克隆完成"
 }
 
-# ================== 拉取源码 ==================
+clone_default_if_absent() {
+  local name="$1" url="$2" dst="$3"
+
+  if [ -d "$dst/.git" ] || [ -d "$dst/.svn" ]; then
+    echo ">>> [$name] 已存在，跳过。"
+  else
+    echo ">>> 正在克隆 $name ..."
+    git clone --depth=1 "$url" "$dst" || {
+      echo "!!! 克隆 $name 失败，请检查网络或仓库地址：$url"
+      exit 1
+    }
+    echo ">>> [$name] 克隆完成"
+  fi
+}
+
+sync_to_dir() {
+  # 用 rsync（优先）或 tar 进行目录同步，并过滤不必要内容
+  local src="$1" dst="$2"
+  mkdir -p "$dst"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete \
+      --exclude=".git" --exclude=".github" \
+      --exclude="build" --exclude="Build*" \
+      --exclude="cmake*" --exclude="CMake*" \
+      --exclude="docs" --exclude="examples" \
+      --exclude="projects" --exclude="tests" \
+      "$src/" "$dst/"
+  else
+    rm -rf "$dst"
+    mkdir -p "$dst"
+    (cd "$src" && tar cf - . \
+      --exclude .git --exclude .github \
+      --exclude build --exclude 'Build*' \
+      --exclude 'cmake*' --exclude 'CMake*' \
+      --exclude docs --exclude examples \
+      --exclude projects --exclude tests) | (cd "$dst" && tar xpf -)
+  fi
+}
+
+# ================== 拉取“会展开到 android/* 的库” ==================
 for i in "${!LIB_NAMES[@]}"; do
   name="${LIB_NAMES[$i]}"
   url="${LIB_URLS[$i]}"
@@ -96,24 +147,22 @@ for i in "${!LIB_NAMES[@]}"; do
       ;;
 
     *)
-      # 其余仓库走默认分支浅克隆
-      if [ -d "$SRC_PATH/.git" ] || [ -d "$SRC_PATH/.svn" ]; then
-        echo ">>> [$name] 已存在，跳过。"
-      else
-        echo ">>> 正在克隆 $name ..."
-        git clone --depth=1 "$url" "$SRC_PATH" || {
-          echo "!!! 克隆 $name 失败，请检查网络或仓库地址：$url"
-          exit 1
-        }
-        echo ">>> [$name] 克隆完成"
-      fi
+      clone_default_if_absent "$name" "$url" "$SRC_PATH"
       ;;
   esac
 done
 
+# ================== 拉取 MediaCore 专用源码：soundtouch & libyuv（只拷贝到 MediaCore） ==================
+for i in "${!MC_NAMES[@]}"; do
+  name="${MC_NAMES[$i]}"
+  url="${MC_URLS[$i]}"
+  SRC_PATH="$EXTRA_DIR/$name"
+  clone_default_if_absent "$name" "$url" "$SRC_PATH"
+done
+
 echo ">>> 三方源码全部准备完毕！"
 
-# ================== 按 ABI 拷贝源码 ==================
+# ================== 按 ABI 拷贝源码到 android/*（不包含 soundtouch/libyuv） ==================
 echo ">>> 开始为各 ABI 拷贝源码到 $ANDROID_DIR ..."
 
 for name in "${LIB_NAMES[@]}"; do
@@ -125,32 +174,36 @@ for name in "${LIB_NAMES[@]}"; do
   for ABI in "${ARCHS[@]}"; do
     DST_PATH="$ANDROID_DIR/${name}-${ABI}"
     rm -rf "$DST_PATH"
-
     rsync -a "$SRC_PATH/" "$DST_PATH/"
     echo ">>> [$name] $ABI 拷贝完成: $DST_PATH"
   done
 done
 
-echo ">>> 所有三方源码已为各 ABI 拷贝完毕！"
+echo ">>> 所有需要的三方源码已为各 ABI 拷贝完毕（soundtouch/libyuv 未拷贝到 android/*）。"
 
-# ====== 独立处理 SoundTouch：复制到 MediaCore/soundtouch（其余逻辑不变） ======
-MEDIA_CORE_DIR="$(pwd)/MediaCore"
+# ================== 仅将 soundtouch 与 libyuv 拷贝到 MediaCore/* ==================
+echo ">>> 同步 MediaCore 专用源码 ..."
+
+# soundtouch -> MediaCore/soundtouch
+SRC_SOUNDTOUCH="$EXTRA_DIR/soundtouch"
 DST_SOUNDTOUCH="$MEDIA_CORE_DIR/soundtouch"
-SRC_SOUNDTOUCH="$EXTRA_DIR/SoundTouch"
-
-mkdir -p "$MEDIA_CORE_DIR"
 if [ -d "$SRC_SOUNDTOUCH" ]; then
   echo ">>> 同步 SoundTouch 源码到 $DST_SOUNDTOUCH"
-  # 使用 rsync，排除无关目录
-  if command -v rsync >/dev/null 2>&1; then
-    rsync -a --delete       --exclude=".git" --exclude=".github" --exclude="build" --exclude="Build*"       --exclude="cmake*" --exclude="CMake*" --exclude="docs" --exclude="examples"       --exclude="projects" --exclude="tests"       "$SRC_SOUNDTOUCH/" "$DST_SOUNDTOUCH/"
-  else
-    # 兜底：tar 管道复制
-    rm -rf "$DST_SOUNDTOUCH"
-    mkdir -p "$DST_SOUNDTOUCH"
-    (cd "$SRC_SOUNDTOUCH" && tar cf - .       --exclude .git --exclude .github --exclude build --exclude Build*       --exclude cmake* --exclude CMake* --exclude docs --exclude examples       --exclude projects --exclude tests) | (cd "$DST_SOUNDTOUCH" && tar xpf -)
-  fi
+  sync_to_dir "$SRC_SOUNDTOUCH" "$DST_SOUNDTOUCH"
   echo ">>> SoundTouch 同步完成：$DST_SOUNDTOUCH"
 else
   echo "!!! 未找到 $SRC_SOUNDTOUCH ，请检查是否已完成拉取"
 fi
+
+# libyuv -> MediaCore/libyuv
+SRC_LIBYUV="$EXTRA_DIR/libyuv"
+DST_LIBYUV="$MEDIA_CORE_DIR/libyuv"
+if [ -d "$SRC_LIBYUV" ]; then
+  echo ">>> 同步 libyuv 源码到 $DST_LIBYUV"
+  sync_to_dir "$SRC_LIBYUV" "$DST_LIBYUV"
+  echo ">>> libyuv 同步完成：$DST_LIBYUV"
+else
+  echo "!!! 未找到 $SRC_LIBYUV ，请检查是否已完成拉取"
+fi
+
+echo ">>> 全部完成：android/* 已展开公共库；MediaCore/* 仅包含 soundtouch 与 libyuv。"
