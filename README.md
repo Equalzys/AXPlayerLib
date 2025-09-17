@@ -1,5 +1,6 @@
 # AXPlayerLib
 
+## 以下为Linux环境编译流程
 ## 安装编译工具、NDK、SDK
 ### 安装必要工具
 
@@ -53,14 +54,7 @@ source ~/.bashrc
 
 ### 源码
 
-git config --global user.name 'zhangyisheng'
-git config --global user.email '215766856@qq.com'
-
-ssh-keygen -t rsa
-cat ~/.ssh/id_rsa.pub
-将秘钥保存到https://gitee.com/profile/sshkeys
-
-git clone git@gitee.com:zys.git/AXPlayerLib.git
+源码clone到本地后
 
 cd AXPlayerLib
 
@@ -68,7 +62,7 @@ touch local.properties
 
 vim local.properties
 
-输入内容为自己环境SDK和NDK路径：
+输入以下内容为自己环境SDK和NDK路径：
 sdk.dir=/root/SDK
 ndk.dir=/root/NDK/android-ndk-r28c
 ndk_toolchains=/root/NDK/android-ndk-r28c/toolchains/llvm/prebuilt/linux-x86_64
@@ -102,8 +96,8 @@ cd android
 ./build_ffmpeg.sh all
 
 
-#### 删除当前目录下的所有子目录及其内容
- 
+#### 其他可能用到的命令：
+删除当前目录下的所有子目录及其内容
 删除前可以先看看要删除的目录
 find . -mindepth 1 -maxdepth 1 -type d -exec ls -d {} \;
 删除
