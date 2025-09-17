@@ -14,5 +14,3 @@ dependencyResolutionManagement {
 }
 rootProject.name = "AXPlayerLib"
 include ':app'
-include ':axplayer-arm64'
-include ':axplayer-armv7a'

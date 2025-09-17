@@ -4,12 +4,12 @@ plugins {
 
 android {
     namespace 'com.axplayer.devlib'
-    compileSdk 33
+    compileSdk 34
 
     defaultConfig {
         applicationId "com.axplayer.devlib"
         minSdk 23
-        targetSdk 33
+        targetSdk 34
         versionCode 1
         versionName "1.0"
 
@@ -17,7 +17,6 @@ android {
         externalNativeBuild {
             cmake {
                 cppFlags '-std=c++11'
-                arguments "-DAXFCORE_BASE=../android/build/ffmpeg"
             }
         }
         ndk {
@@ -37,12 +36,16 @@ android {
     }
     externalNativeBuild {
         cmake {
-            path file('../MediaCore/CMakeLists.txt')
+            path file('/Users/admin/WorkSpace/AndroidGitCode/Equalzys/AXPlayerLib/MediaCore/CMakeLists.txt')
             version '3.22.1'
         }
     }
     buildFeatures {
         viewBinding true
+    }
+    sourceSets.main {
+        jniLibs.srcDirs 'src/main/libs'
+        jni.srcDirs = [] // This prevents the auto generation of Android.mk
     }
 }
 
@@ -54,7 +57,4 @@ dependencies {
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.2.1'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
-
-    implementation(":axplayer-arm64")
-    implementation(":axplayer-armv7a")
 }

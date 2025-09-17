@@ -122,6 +122,7 @@ for ABI in "${ARCHS[@]}"; do
     export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
     export STRINGS="$TOOLCHAIN/bin/llvm-strings"
     export STRIP="$TOOLCHAIN/bin/llvm-strip"
+
 #    export EXTRA_CFLAGS="-O2 -g0"
 #    export EXTRA_CXXFLAGS="-O2 -g0"
     if [ ! -x "$STRINGS" ]; then
@@ -137,6 +138,7 @@ for ABI in "${ARCHS[@]}"; do
         --disable-shared \
         --disable-cli \
         --disable-asm \
+        --disable-openmp \
         --enable-pic \
         --extra-cflags="-fPIC $OPTIMIZE_CFLAGS" \
 

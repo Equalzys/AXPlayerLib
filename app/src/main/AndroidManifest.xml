@@ -2,6 +2,37 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!--<uses-permission android:name="com.google.android.apps.photos.permission.GOOGLE_PHOTOS" />-->
+    <uses-permission
+        android:name="android.permission.ACCESS_WIFI_STATE"
+        tools:node="strict" />
+
+    <uses-feature
+        android:name="android.hardware.screen.LANDSCAPE"
+        android:required="false" />
+
+    <uses-feature
+        android:name="android.hardware.WIFI"
+        android:required="false" />
+
+    <!--    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />-->
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <!--    api 33-->
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <uses-sdk tools:overrideLibrary="android.supprot.design.widgit,
+        android.supprot.design.statussaver,
+        android.supprot.desgin.widget,
+        android.supprot.design.hosting,
+        androidx.appcompat.widget" />
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"

@@ -41,6 +41,8 @@ fi
 # 并发
 if command -v nproc >/dev/null 2>&1; then JOBS=$(nproc); else JOBS=$(sysctl -n hw.ncpu); fi
 
+DEST_APP_LIBS_BASE="$AXPLAYER_ROOT/app/src/main/libs"
+
 # 清理
 if [ "$1" = "clean" ]; then
   echo ">>> 清理 ffmpeg 各 ABI 目录 ..."
@@ -215,7 +217,7 @@ for ABI in "${TARGETS[@]}"; do
     --extra-cflags="-Os -fPIC -DANDROID $NO_PIE $EXTRA_CFLAGS" \
     --extra-cxxflags="-Os -fPIC -DANDROID $NO_PIE" \
     --extra-ldflags="$EXTRA_LDFLAGS $NO_PIE" \
-    --extra-libs="-lm -lomp" \
+    --extra-libs="-lm" \
     --disable-debug
 
   # 避免外部 LDFLAGS 污染
@@ -272,16 +274,28 @@ for ABI in "${TARGETS[@]}"; do
 
   "$CXX" --sysroot="$TOOLCHAIN/sysroot" -shared -o "$OUT_SO" \
     -Wl,-soname,libAXFCore.so \
+    -Wl,--hash-style=sysv -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=65536 -Wl,-Bsymbolic \
     -Wl,--no-undefined -Wl,--gc-sections -Wl,--no-as-needed \
     -Wl,-Map,"$OUT_SO.map" -Wl,--cref \
     -Wl,--whole-archive  "${FF_A[@]}"  -Wl,--no-whole-archive \
     "${THIRD_A[@]}" \
-    -llog -landroid -ldl -lmediandk -lomp -lm -lz \
+    -llog -landroid -ldl -lmediandk -lm -lz \
     -static-libstdc++ \
     $EXTRA_LINK_FIX
 
 #  "$TOOLCHAIN/bin/llvm-strip" --strip-unneeded "$OUT_SO" || true
   echo ">>> [$ABI] 产物: $OUT_SO"
+
+    # >>> 新增：成功后拷贝到 app/src/main/libs/<ABI>/
+    DEST_DIR="$DEST_APP_LIBS_BASE/$ABI"
+    mkdir -p "$DEST_DIR"
+    if [ -f "$OUT_SO" ]; then
+      cp -f "$OUT_SO" "$DEST_DIR/"
+      echo ">>> [$ABI] 已拷贝到: $DEST_DIR/$(basename "$OUT_SO")"
+    else
+      echo "!!! [$ABI] 未发现产物: $OUT_SO"; exit 1
+    fi
+
 done
 
 echo ">>> FFmpeg （libAXFCore.so）全部 ABI 编译完成！"

@@ -123,8 +123,8 @@ for ABI in "${TARGETS[@]}"; do
     OPTIMIZE_CFLAGS="-march=$CPU"
     export CFLAGS="-Os -fpic -fdeclspec $OPTIMIZE_CFLAGS"
     export CPPFLAGS="-Os -fpic -fdeclspec $OPTIMIZE_CFLAGS"
-    export EXTRA_CFLAGS="-O2 -g0"
-    export EXTRA_CXXFLAGS="-O2 -g0"
+#    export EXTRA_CFLAGS="-O2 -g0"
+#    export EXTRA_CXXFLAGS="-O2 -g0"
 
     ./configure \
         --host=$HOST \

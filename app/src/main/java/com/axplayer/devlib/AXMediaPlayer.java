@@ -4,6 +4,7 @@ import android.content.Context;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 
@@ -13,12 +14,6 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class AXMediaPlayer implements IAXPlayer, SurfaceHolder.Callback {
-
-    static {
-        // 后续可替换为你的统一加载器；保持幂等
-        System.loadLibrary("AXPlayer");   // 对应 libAXPlayer.so
-        System.loadLibrary("AXFCore");    // 对应 libAXFCore.so（FFmpeg等）
-    }
 
     // ---------------- JNI native handle ----------------
     private long mNativeCtx = 0;
@@ -35,6 +30,24 @@ public class AXMediaPlayer implements IAXPlayer, SurfaceHolder.Callback {
     private final AtomicBoolean released = new AtomicBoolean(false);
     private SurfaceHolder mHolder;
     private Surface mSurface;
+
+    public static boolean isLoadSoSuccess = false;
+
+    public static boolean loadSoOnce() {
+        if (isLoadSoSuccess) return true;
+        try {
+            System.loadLibrary("mediandk");  // libAXPlayer.so
+            System.loadLibrary("AXPlayer");  // libAXPlayer.so
+            System.loadLibrary("AXFCore");   // libAXFCore.so（FFmpeg等）
+            isLoadSoSuccess = true;
+        } catch (Exception e) {
+            e.printStackTrace();
+            Log.e("AXF",e.getMessage());
+            isLoadSoSuccess = false;
+        }
+        return isLoadSoSuccess;
+
+    }
 
     public AXMediaPlayer() {
         mNativeCtx = nativeCreate(new WeakReference<>(this));
@@ -159,23 +172,45 @@ public class AXMediaPlayer implements IAXPlayer, SurfaceHolder.Callback {
     }
 
     // ======= Listeners setters =======
-    @Override public void setOnPreparedListener(OnPreparedListener l) { this.onPreparedListener = l; }
-    @Override public void setOnCompletionListener(OnCompletionListener l) { this.onCompletionListener = l; }
-    @Override public void setOnBufferingUpdateListener(OnBufferingUpdateListener l) { this.onBufferingUpdateListener = l; }
-    @Override public void setOnVideoSizeChangedListener(OnVideoSizeChangedListener l) { this.onVideoSizeChangedListener = l; }
-    @Override public void setOnErrorListener(OnErrorListener l) { this.onErrorListener = l; }
+    @Override
+    public void setOnPreparedListener(OnPreparedListener l) {
+        this.onPreparedListener = l;
+    }
+
+    @Override
+    public void setOnCompletionListener(OnCompletionListener l) {
+        this.onCompletionListener = l;
+    }
+
+    @Override
+    public void setOnBufferingUpdateListener(OnBufferingUpdateListener l) {
+        this.onBufferingUpdateListener = l;
+    }
+
+    @Override
+    public void setOnVideoSizeChangedListener(OnVideoSizeChangedListener l) {
+        this.onVideoSizeChangedListener = l;
+    }
+
+    @Override
+    public void setOnErrorListener(OnErrorListener l) {
+        this.onErrorListener = l;
+    }
 
     // ======= SurfaceHolder.Callback =======
-    @Override public void surfaceCreated(SurfaceHolder holder) {
+    @Override
+    public void surfaceCreated(SurfaceHolder holder) {
         if (released.get()) return;
         setDisplay(holder);
     }
 
-    @Override public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+    @Override
+    public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
         // 可在此转发窗口尺寸给 native（如果做窗口大小适配或旋转）
     }
 
-    @Override public void surfaceDestroyed(SurfaceHolder holder) {
+    @Override
+    public void surfaceDestroyed(SurfaceHolder holder) {
         if (released.get()) return;
         setDisplay(null);
     }
@@ -209,7 +244,8 @@ public class AXMediaPlayer implements IAXPlayer, SurfaceHolder.Callback {
     private void postOnVideoSizeChanged(final int w, final int h, final int sarNum, final int sarDen) {
         if (onVideoSizeChangedListener == null) return;
         mainHandler.post(() -> {
-            if (!released.get()) onVideoSizeChangedListener.onVideoSizeChanged(this, w, h, sarNum, sarDen);
+            if (!released.get())
+                onVideoSizeChangedListener.onVideoSizeChanged(this, w, h, sarNum, sarDen);
         });
     }
 
@@ -223,22 +259,40 @@ public class AXMediaPlayer implements IAXPlayer, SurfaceHolder.Callback {
 
     // ======= JNI native methods =======
     private static native long nativeCreate(WeakReference<AXMediaPlayer> weakSelf);
-    private static native void nativeSetDataSourceUri(long ctx, Context context, String uri, Map<String,String> headers);
+
+    private static native void nativeSetDataSourceUri(long ctx, Context context, String uri, Map<String, String> headers);
+
     private static native void nativeSetDataSourcePath(long ctx, String path);
+
     private static native void nativePrepareAsync(long ctx);
+
     private static native void nativeStart(long ctx);
+
     private static native void nativePause(long ctx);
+
     private static native void nativeSeekTo(long ctx, long msec);
+
     private static native boolean nativeIsPlaying(long ctx);
+
     private static native void nativeSetSpeed(long ctx, float speed);
+
     private static native long nativeGetCurrentPosition(long ctx);
+
     private static native long nativeGetDuration(long ctx);
+
     private static native void nativeSetVolume(long ctx, float left, float right);
+
     private static native int nativeGetVideoWidth(long ctx);
+
     private static native int nativeGetVideoHeight(long ctx);
+
     private static native int nativeGetVideoSarNum(long ctx);
+
     private static native int nativeGetVideoSarDen(long ctx);
+
     private static native int nativeGetAudioSessionId(long ctx);
+
     private static native void nativeSetSurface(long ctx, Surface surface);
+
     private static native void nativeRelease(long ctx);
 }

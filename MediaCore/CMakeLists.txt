@@ -12,10 +12,15 @@ set(AX_LIBYUV_DIR ${AX_MEDIA_CORE_DIR}/libyuv)
 set(AX_JNI_DIR ${AX_MEDIA_CORE_DIR}/player/jni)
 
 # ===================== 外部参数 =====================
+get_filename_component(PROJ_ROOT ${AX_MEDIA_CORE_DIR} DIRECTORY)     # AXPlayerLib/
 if (NOT DEFINED AXFCORE_BASE)
-    set(AXFCORE_BASE "${CMAKE_SOURCE_DIR}/../android/build/ffmpeg")
+    set(AXFCORE_BASE "${PROJ_ROOT}/android/build/ffmpeg")
 endif ()
 
+# ★ 将相对路径转为“以工程根”为基准的绝对路径（关键）
+if (NOT IS_ABSOLUTE "${AXFCORE_BASE}")
+    get_filename_component(AXFCORE_BASE "${AXFCORE_BASE}" ABSOLUTE BASE_DIR "${PROJ_ROOT}")
+endif ()
 message(STATUS "ANDROID_ABI=${ANDROID_ABI}")
 message(STATUS "AXFCORE_BASE=${AXFCORE_BASE}")
 
@@ -23,10 +28,10 @@ message(STATUS "AXFCORE_BASE=${AXFCORE_BASE}")
 file(GLOB AXPLAYER_SRC
         ${AX_PLAYER_DIR}/core/*.cpp
         ${AX_PLAYER_DIR}/core/gl/*.cpp
-        )
+)
 file(GLOB AXPLAYER_JNI_SRC
         ${AX_JNI_DIR}/*.cpp
-        )
+)
 file(GLOB SOUNDTOUCH_SRC
         ${AX_SOUNDTOUCH_DIR}/source/SoundTouch/AAFilter.cpp
         ${AX_SOUNDTOUCH_DIR}/source/SoundTouch/BPMDetect.cpp
@@ -39,63 +44,76 @@ file(GLOB SOUNDTOUCH_SRC
         ${AX_SOUNDTOUCH_DIR}/source/SoundTouch/RateTransposer.cpp
         ${AX_SOUNDTOUCH_DIR}/source/SoundTouch/SoundTouch.cpp
         ${AX_SOUNDTOUCH_DIR}/source/SoundTouch/TDStretch.cpp
-        )
+)
 
-add_library(axplayer SHARED
+add_library(AXPlayer SHARED
         ${AXPLAYER_SRC}
         ${AXPLAYER_JNI_SRC}
         ${SOUNDTOUCH_SRC}
-        )
+)
 
-# ✅ 显式声明此目标使用 C++11（让 IDE/索引器不再误判）
-target_compile_features(axplayer PRIVATE cxx_std_11)
+target_compile_features(AXPlayer PRIVATE cxx_std_11)
 
-#  用 target_include_directories 绑定到 axplayer（PUBLIC）
-target_include_directories(axplayer
+target_include_directories(AXPlayer
         PUBLIC
-        ${AX_PLAYER_DIR}/include            # 这里包含 AXPlayer.h
+        ${AX_PLAYER_DIR}/include
         ${AX_LIBYUV_DIR}/include
         ${AX_SOUNDTOUCH_DIR}/include
         ${AX_SOUNDTOUCH_DIR}/source
-        ${AXFCORE_BASE}/${ANDROID_ABI}/include
-        )
+        # AXFCore 的头文件目录仅在存在时追加（见下方）
+)
 
 # ===================== 编译选项 =====================
-target_compile_options(axplayer PRIVATE
+target_compile_options(AXPlayer PRIVATE
         -fvisibility=hidden
         -ffunction-sections
         -fdata-sections
         -fno-exceptions
         -fno-rtti
-        )
+)
+#target_compile_definitions(AXPlayer PRIVATE ST_NO_EXCEPTION)
 
 option(WITH_SOUNDTOUCH_SIMD "Enable SoundTouch SIMD (NEON/SSE) if available" OFF)
 if (NOT WITH_SOUNDTOUCH_SIMD)
-    target_compile_definitions(axplayer PRIVATE SOUNDTOUCH_DISABLE_SIMD)
+    target_compile_definitions(AXPlayer PRIVATE SOUNDTOUCH_DISABLE_SIMD)
 endif ()
 
-# ===================== 导入 AXFCore =====================
-add_library(axfcore SHARED IMPORTED)
-if (${ANDROID_ABI} STREQUAL "arm64-v8a")
-    set_target_properties(axfcore PROPERTIES IMPORTED_LOCATION
-            "${AXFCORE_BASE}/arm64-v8a/libAXFCore.so")
-elseif (${ANDROID_ABI} STREQUAL "armeabi-v7a")
-    set_target_properties(axfcore PROPERTIES IMPORTED_LOCATION
-            "${AXFCORE_BASE}/armeabi-v7a/libAXFCore.so")
+# ===================== 导入 AXFCore（存在才链接） =====================
+# FIX: 自动探测 libAXFCore.so：存在→导入并链接；不存在→跳过，先跑起来
+set(AXFCORE_SO "${AXFCORE_BASE}/${ANDROID_ABI}/libAXFCore.so")
+if (EXISTS "${AXFCORE_SO}")
+    add_library(axfcore SHARED IMPORTED)
+    set_target_properties(axfcore PROPERTIES IMPORTED_LOCATION "${AXFCORE_SO}")
+    target_include_directories(AXPlayer PUBLIC "${AXFCORE_BASE}/${ANDROID_ABI}/include")
+    target_link_libraries(AXPlayer axfcore)
+    message(STATUS "Linking with AXFCore: ${AXFCORE_SO}")
 else ()
-    message(FATAL_ERROR "Unsupported ABI: ${ANDROID_ABI}")
+    message(WARNING "AXFCore not found at ${AXFCORE_SO}; build continues WITHOUT it.")
 endif ()
+
+
 
 # ===================== 系统库链接 =====================
-# 如你当前能正常链接，可继续直接写库名；若 IDE 仍飘红，可改为 find_library 显式查找
-target_link_libraries(axplayer
-        axfcore
-        log
-        android
-        EGL
-        GLESv3
-        jnigraphics
-        )
+# 建议显式 find_library，避免某些 NDK 版本名字大小写差异
+find_library(log-lib      log)
+find_library(android-lib  android)
+find_library(egl-lib      EGL)
+find_library(glesv3-lib   GLESv3)
+find_library(jnigfx-lib   jnigraphics)
+find_library(mediandk-lib mediandk)
+
+set_source_files_properties(${SOUNDTOUCH_SRC}
+        PROPERTIES COMPILE_OPTIONS "-fexceptions"
+)
+
+target_link_libraries(AXPlayer
+        ${log-lib}
+        ${android-lib}
+        ${egl-lib}
+        ${glesv3-lib}
+        ${jnigfx-lib}
+        ${mediandk-lib}
+)
 
 set(CMAKE_SHARED_LINKER_FLAGS
         "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--gc-sections -Wl,--exclude-libs,ALL")
