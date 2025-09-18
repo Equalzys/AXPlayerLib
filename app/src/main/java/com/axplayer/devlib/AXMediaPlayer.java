@@ -1,3 +1,4 @@
+// 文件路径：app/src/main/java/com/axplayer/devlib/AXMediaPlayer.java
 package com.axplayer.devlib;
 
 import android.content.Context;
@@ -7,7 +8,6 @@ import android.os.Looper;
 import android.util.Log;
 import android.view.Surface;
 import android.view.SurfaceHolder;
-
 
 import java.lang.ref.WeakReference;
 import java.util.Map;
@@ -33,20 +33,21 @@ public class AXMediaPlayer implements IAXPlayer, SurfaceHolder.Callback {
 
     public static boolean isLoadSoSuccess = false;
 
+    /**
+     * 建议的加载顺序：AXFCore(FFmpeg等) -> AXPlayer（mediandk 通常不必手动加载）
+     */
     public static boolean loadSoOnce() {
         if (isLoadSoSuccess) return true;
         try {
-            System.loadLibrary("mediandk");  // libAXPlayer.so
-            System.loadLibrary("AXPlayer");  // libAXPlayer.so
             System.loadLibrary("AXFCore");   // libAXFCore.so（FFmpeg等）
+            System.loadLibrary("AXPlayer");  // libAXPlayer.so（JNI 也在本 so 中）
             isLoadSoSuccess = true;
-        } catch (Exception e) {
-            e.printStackTrace();
-            Log.e("AXF",e.getMessage());
+        } catch (Throwable t) { // 捕获 Throwable 更稳（包含 UnsatisfiedLinkError）
+            t.printStackTrace();
+            Log.e("AXMediaPlayer", "loadSoOnce failed: " + t.getMessage());
             isLoadSoSuccess = false;
         }
         return isLoadSoSuccess;
-
     }
 
     public AXMediaPlayer() {
@@ -57,6 +58,10 @@ public class AXMediaPlayer implements IAXPlayer, SurfaceHolder.Callback {
     @Override
     public void setDataSource(Context context, Uri uri, Map<String, String> headers) {
         if (released.get()) return;
+        if (uri == null) {
+            Log.w("AXMediaPlayer", "setDataSource: uri is null");
+            return;
+        }
         nativeSetDataSourceUri(mNativeCtx, context, uri.toString(), headers);
     }
 
@@ -92,7 +97,9 @@ public class AXMediaPlayer implements IAXPlayer, SurfaceHolder.Callback {
             mHolder = null;
         }
         if (mSurface != null) {
-            mSurface.release();
+            try {
+                mSurface.release();
+            } catch (Throwable ignored) {}
             mSurface = null;
         }
         nativeRelease(mNativeCtx);
@@ -110,7 +117,9 @@ public class AXMediaPlayer implements IAXPlayer, SurfaceHolder.Callback {
 
         Surface newSurface = (mHolder != null) ? mHolder.getSurface() : null;
         if (mSurface != newSurface) {
-            if (mSurface != null) mSurface.release();
+            if (mSurface != null) {
+                try { mSurface.release(); } catch (Throwable ignored) {}
+            }
             mSurface = newSurface;
         }
         nativeSetSurface(mNativeCtx, mSurface);
@@ -206,7 +215,7 @@ public class AXMediaPlayer implements IAXPlayer, SurfaceHolder.Callback {
 
     @Override
     public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-        // 可在此转发窗口尺寸给 native（如果做窗口大小适配或旋转）
+        // 如需窗口尺寸变更通知，可在此转发给 native
     }
 
     @Override

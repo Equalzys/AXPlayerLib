@@ -1,4 +1,4 @@
-#include "AXPlayer.h"                 // 项目内相对包含（不要再用 ../include/AXPlayer.h）
+#include "AXPlayer.h"
 #include <android/log.h>
 #include <android/native_window.h>
 #include <jni.h>
@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <cstdlib>
 
 #include "AXDemuxer.h"
 #include "AXDecoder.h"
@@ -17,30 +18,23 @@
 #include "AXErrors.h"
 
 extern "C" {
-#include <libavformat/avformat.h>     // AVFormatContext / av_rescale_q 依赖
+#include <libavformat/avformat.h>
 #include <libavutil/avutil.h>
+#include <libavutil/channel_layout.h>
 }
 
-// 统一日志宏（兼容历史写法）
-#define AXLOGI(...) __android_log_print(ANDROID_LOG_INFO,  "AXPlayer", __VA_ARGS__)
-#define AXLOGW(...) __android_log_print(ANDROID_LOG_WARN,  "AXPlayer", __VA_ARGS__)
-#define AXLOGE(...) __android_log_print(ANDROID_LOG_ERROR, "AXPlayer", __VA_ARGS__)
 
+// nowMs 工具
 static inline int64_t nowMs() {
     using namespace std::chrono;
     return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
 }
 
 // ===== JavaVM 线程附着工具 =====
-
-// 静态 JavaVM 保存（定义）
 JavaVM* AXPlayer::sVm = nullptr;
-
-// 静态设置/获取
 void AXPlayer::SetJavaVM(JavaVM* vm) { AXPlayer::sVm = vm; }
 JavaVM* AXPlayer::GetJavaVM()        { return AXPlayer::sVm; }
 
-// 线程作用域：进入线程时 attach，退出时 detach
 struct JniThreadScope {
     bool attached = false;
     JNIEnv* env = nullptr;
@@ -58,68 +52,132 @@ struct JniThreadScope {
     }
 };
 
-// ===== AXPlayer 实现 =====
-
 AXPlayer::AXPlayer(std::shared_ptr<AXPlayerCallback> cb) : cb_(std::move(cb)) {
-    AXLOGI("AXPlayer ctor");
+    AX_LOGI("AXPlayer ctor");
 }
 
 AXPlayer::~AXPlayer() {
-    AXLOGI("AXPlayer dtor: begin");
+    AX_LOGI("AXPlayer dtor: begin");
+    playing_.store(false);
     abort_.store(true);
+
+    // 先停播放/IO 线程（防止它们再驱动渲染器）
     if (ioThread_.joinable())   ioThread_.join();
     if (playThread_.joinable()) playThread_.join();
 
-    // 安全释放窗口（如果 AXPlayer 持有）
+    // ★ 关键：停 demux/decoder，并让队列退出
+    stopPipelines_();
+
+    // 再释放渲染器（此时不会再被调用）
+    if (aRen_) aRen_->release();
+    if (vRen_) vRen_->release();
+    aRen_.reset();
+    vRen_.reset();
+
+    // 最后释放窗口
     {
         std::lock_guard<std::mutex> lk(wmtx_);
         if (window_) {
-            // 如果在 setWindow() 里通过 ANativeWindow_acquire 接管了，需要这里 release
-            // ANativeWindow_release(window_);
+            ANativeWindow_release(window_);
             window_ = nullptr;
         }
     }
-    AXLOGI("AXPlayer dtor: done");
+    AX_LOGI("AXPlayer dtor: done");
+}
+void AXPlayer::stopPipelines_() {
+    // 停 demuxer 线程
+    if (demux_) demux_->stop();
+
+    // 通知队列退出并唤醒
+    if (aPktQ_) aPktQ_->abort();
+    if (vPktQ_) vPktQ_->abort();
+    if (aFrmQ_) aFrmQ_->abort();
+    if (vFrmQ_) vFrmQ_->abort();
+
+    // 停解码线程
+    if (aDec_) aDec_->stop();
+    if (vDec_) vDec_->stop();
+
+    // 清空/释放（此时内部互斥量仍然存活且线程已停）
+    aDec_.reset();
+    vDec_.reset();
+    demux_.reset(); // AXDemuxer 析构里也会安全 close_input()
+
+    aPktQ_.reset();
+    vPktQ_.reset();
+    aFrmQ_.reset();
+    vFrmQ_.reset();
 }
 
 void AXPlayer::setDataSource(const std::string& urlOrPath, const std::map<std::string, std::string>& headers) {
     source_  = urlOrPath;
     headers_ = headers;
-    AXLOGI("setDataSource: %s", source_.c_str());
+    AX_LOGI("setDataSource: %s", source_.c_str());
 }
 
 void AXPlayer::prepareAsync() {
     if (state_ != State::IDLE && state_ != State::STOPPED) {
-        AXLOGW("prepareAsync called in wrong state");
+        AX_LOGW("prepareAsync called in wrong state");
         return;
     }
     changeState(State::PREPARING);
     abort_.store(false);
+    prepared_.store(false);
     ioThread_ = std::thread(&AXPlayer::ioThreadLoop, this);
 }
 
 void AXPlayer::start() {
+    if (state_ == State::COMPLETED) {
+        AX_LOGI("restart from COMPLETED: seek to 0 and restart demux/dec");
+        // 1) flush
+        if (aDec_) aDec_->flush();
+        if (vDec_) vDec_->flush();
+        if (aPktQ_) aPktQ_->flush();
+        if (vPktQ_) vPktQ_->flush();
+        if (aFrmQ_) aFrmQ_->flush();
+        if (vFrmQ_) vFrmQ_->flush();
+
+        // 2) 选择一个可用流的 time_base
+        int targetStream = (vDec_ && vStreamIdx_ >= 0) ? vStreamIdx_ :
+                           (aDec_ && aStreamIdx_ >= 0) ? aStreamIdx_ : -1;
+        if (targetStream >= 0) {
+            demux_->seek(targetStream, 0);
+        }
+        // 3) 重新启动 demux/dec 线程（如果它们会在 EOF 退出）
+        demux_->start(aPktQ_.get(), vPktQ_.get());
+        if (aDec_) aDec_->start();
+        if (vDec_) vDec_->start();
+
+        // 4) 时钟归零
+        if (clock_) { clock_->reset(0); clock_->setSpeed(speed_); }
+        prepared_.store(true);
+        changeState(State::PREPARED);
+        return;
+    }
     if (state_ == State::PREPARED || state_ == State::PAUSED || state_ == State::COMPLETED) {
         playing_.store(true);
+        if (clock_) {
+            clock_->setSpeed(speed_);
+            clock_->pause(false);
+        }
         if (!playThread_.joinable())
             playThread_ = std::thread(&AXPlayer::playThreadLoop, this);
-        if (clock_) clock_->pause(false);
         changeState(State::PLAYING);
-        AXLOGI("start");
+        AX_LOGI("start");
     } else {
-        AXLOGW("start ignored: state=%d", (int)state_.load());
+        AX_LOGW("start ignored: state=%d", (int)state_.load());
     }
 }
 
 void AXPlayer::pause() {
-    AXLOGI("pause");
+    AX_LOGI("pause");
     playing_.store(false);
     if (clock_) clock_->pause(true);
     changeState(State::PAUSED);
 }
 
 void AXPlayer::seekTo(int64_t msec) {
-    AXLOGI("seekTo: %lld ms", (long long)msec);
+    AX_LOGI("seekTo: %lld ms", (long long)msec);
     if (!demux_) return;
 
     int targetStream = -1;
@@ -133,10 +191,8 @@ void AXPlayer::seekTo(int64_t msec) {
     }
     if (targetStream < 0) return;
 
-    // ms -> stream timebase
     int64_t pts = av_rescale_q(msec, AVRational{1,1000}, tb);
 
-    // flush 队列与解码器
     if (aDec_) aDec_->flush();
     if (vDec_) vDec_->flush();
     if (aPktQ_) aPktQ_->flush();
@@ -144,11 +200,16 @@ void AXPlayer::seekTo(int64_t msec) {
     if (aFrmQ_) aFrmQ_->flush();
     if (vFrmQ_) vFrmQ_->flush();
 
-    // demux seek
     demux_->seek(targetStream, pts);
 
-    // 时钟重置
-    if (clock_) clock_->reset(msec * 1000);
+    if (clock_) {
+        float sp = speed_;
+        bool wasPaused = !playing_.load();
+        clock_->reset(msec * 1000);
+        clock_->setSpeed(sp);
+        clock_->pause(wasPaused);
+    }
+    positionMs_.store(msec);
 }
 
 bool AXPlayer::isPlaying() { return playing_.load(); }
@@ -164,8 +225,10 @@ int AXPlayer::getAudioSessionId() { return audioSessionId_; }
 
 void AXPlayer::setWindow(ANativeWindow* window) {
     std::lock_guard<std::mutex> lk(wmtx_);
-    // 如果 JNI 侧释放了 fromSurface 的引用，这里可采用 acquire 接管所有权
-    // if (window) ANativeWindow_acquire(window);
+    if (window) ANativeWindow_acquire(window);
+    if (window_ && window_ != window) {
+        ANativeWindow_release(window_);
+    }
     window_ = window;
     if (vRen_) vRen_->init(window_, videoW_, videoH_, sarNum_, sarDen_);
 }
@@ -175,28 +238,37 @@ void AXPlayer::changeState(State s) { state_.store(s); }
 void AXPlayer::notifyError(int what, int extra, const std::string& msg) {
     changeState(State::ERROR);
     playing_.store(false);
-    AXLOGE("notifyError what=%d extra=%d msg=%s", what, extra, msg.c_str());
+    AX_LOGE("notifyError what=%d extra=%d msg=%s", what, extra, msg.c_str());
     if (cb_) cb_->onError(what, extra, msg);
 }
 
 void AXPlayer::ioThreadLoop() {
     JniThreadScope jscope;
-    AXLOGI("ioThread start");
+    AX_LOGI("ioThread start");
 
     demux_.reset(new AXDemuxer());
     aPktQ_.reset(new PacketQueue(256));
     vPktQ_.reset(new PacketQueue(256));
     aFrmQ_.reset(new FrameQueue(64));
     vFrmQ_.reset(new FrameQueue(32));
+    // 记录容量（BoundedQueue 无 capacity()）
+    aPktCap_ = 256;
+    vPktCap_ = 256;
+    aFrmCap_ = 64;
+    vFrmCap_ = 32;
+
     clock_.reset(new AXClock());
+    clock_->setSpeed(speed_);
 
     DemuxResult info;
     if (!demux_->open(source_, headers_, info)) {
         notifyError(AXERR_SOURCE_OPEN, -1, "open source failed");
+        stopPipelines_();
         return;
     }
     if (info.audioStream < 0 && info.videoStream < 0) {
         notifyError(AXERR_NO_STREAM, -1, "no audio/video stream");
+        stopPipelines_();
         return;
     }
 
@@ -236,58 +308,161 @@ void AXPlayer::ioThreadLoop() {
     }
     if (!audioOk && !videoOk) {
         notifyError(AXERR_DECODER_OPEN, -1, "no decoder available");
+        stopPipelines_();
         return;
     }
 
     vRen_.reset(new AXVideoRenderer());
     aRen_.reset(new AXAudioRenderer());
     if (window_ && !vRen_->init(window_, videoW_, videoH_, sarNum_, sarDen_)) {
-        notifyError(AXERR_RENDER, -1, "video renderer init failed");
+//        notifyError(AXERR_RENDER, -1, "video renderer init failed");
+        AX_LOGE("video renderer init failed");
         // 不中断：允许纯音频播放
     }
     if (aDec_ && aDec_->ctx()) {
-        if (!aRen_->init(aDec_->ctx()->sample_rate, aDec_->ctx()->ch_layout.nb_channels, aDec_->ctx()->sample_fmt)) {
-            AXLOGW("audio renderer init failed");
+        // 统一使用 nb_channels；拿不到则兜底 2
+        int realCh = 0;
+        if (aDec_->ctx()->ch_layout.nb_channels > 0) {
+            realCh = aDec_->ctx()->ch_layout.nb_channels;
+        }
+        if (realCh <= 0 && demux_ && aStreamIdx_ >= 0) {
+            AVStream* ast = demux_->fmt()->streams[aStreamIdx_];
+            if (ast && ast->codecpar && ast->codecpar->ch_layout.nb_channels > 0) {
+                realCh = ast->codecpar->ch_layout.nb_channels;
+            }
+        }
+        if (realCh <= 0) realCh = 2;
+
+        if (!aRen_->init(aDec_->ctx()->sample_rate, realCh, aDec_->ctx()->sample_fmt)) {
+            AX_LOGW("audio renderer init failed");
+        } else {
+            aRen_->setTimeBase(aDec_->timeBase()); // 让音频渲染器知道帧的时间基
         }
     }
 
-    // 上层回调：prepared + 视频尺寸
+    // 视频时间基传给渲染器（即便当前无窗口也可先设置）
+    if (vDec_ && vRen_) {
+        vRen_->setTimeBase(vDec_->timeBase());
+    }
+
     if (cb_) {
         cb_->onVideoSizeChanged(videoW_, videoH_, sarNum_, sarDen_);
         cb_->onPrepared();
     }
     changeState(State::PREPARED);
 
-    // 启动解复用与解码线程
     demux_->start(aPktQ_.get(), vPktQ_.get());
     if (aDec_) aDec_->start();
     if (vDec_) vDec_->start();
 
-    AXLOGI("ioThread prepared");
+    prepared_.store(true);
+    cvReady_.notify_all();
+
+    AX_LOGI("ioThread prepared");
 }
 
 void AXPlayer::playThreadLoop() {
     JniThreadScope jscope;
-    AXLOGI("playThread start");
+    AX_LOGI("playThread start");
+
+    // === 等待 prepared：用谓词循环，支持被 abort_ 打断 ===
+    {
+        std::unique_lock<std::mutex> lk(prepMtx_);
+        cvReady_.wait(lk, [this]{
+            return abort_.load() || prepared_.load();
+        });
+    }
+    if (abort_.load()) { AX_LOGI("playThread exit early (aborted before prepared)"); return; }
+
+    bool  completedNotified = false;
+    int64_t lastBufCbMs     = 0;  // 上次缓冲回调时间（ms）
+
     while (!abort_.load()) {
         if (!playing_.load()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
-        // 主时钟：优先音频
-        int64_t masterUs = clock_ ? clock_->ptsUs() : 0;
+
+        // ==== 主时钟选择：优先音频；无音频则用外部时钟 ====
+        // 确保 clock_ 存在
+        if (!clock_) {
+            clock_.reset(new AXClock());
+            clock_->setSpeed(speed_);
+        }
+
+        int64_t masterUs = 0;
+        // 做快照，避免并发 reset() / release()
+        AXAudioRenderer* aRen = aRen_.get();
+        AXVideoRenderer* vRen = vRen_.get();
+
+        if (aRen) {
+            const int64_t audioPlayedUs = aRen->lastRenderedPtsUs();
+            const bool audioClockValid  = (audioPlayedUs >= 0); // ★ 允许 0
+
+            if (audioClockValid) {
+                const float sp       = speed_;
+                const bool  wasPause = !playing_.load();
+                const int64_t curUs  = clock_->ptsUs();
+
+                // 仅当偏差明显才对齐，避免抖动（>5ms）
+                if (std::llabs(audioPlayedUs - curUs) > 5000) {
+                    clock_->reset(audioPlayedUs);
+                    clock_->setSpeed(sp);
+                    clock_->pause(wasPause);
+                    // AX_LOGI("[clk] anchor audio pts=%lldus -> cur=%lldus", (long long)audioPlayedUs, (long long)curUs);
+                }
+                masterUs = clock_->ptsUs();
+            } else {
+                // 音频未就绪：外部时钟自然推进
+                masterUs = clock_->ptsUs();
+            }
+        } else {
+            // 无音频：外部时钟
+            masterUs = clock_->ptsUs();
+        }
+
         positionMs_.store(masterUs / 1000);
 
-        // 视频渲染（被动拉）
-        if (vRen_) vRen_->setFrameQueue(vFrmQ_.get());
-        if (vRen_) vRen_->drawLoopOnce(masterUs);
+        // ==== 渲染 ====
+        if (vRen) {
+            vRen->setFrameQueue(vFrmQ_.get());
+            vRen->drawLoopOnce(masterUs);
+        }
+        if (aRen) {
+            aRen->setFrameQueue(aFrmQ_.get());
+            aRen->renderOnce(masterUs);
+        }
 
-        // 音频渲染（占位，后续接 OpenSL ES/AAudio 回调）
-        if (aRen_) aRen_->setFrameQueue(aFrmQ_.get());
-        if (aRen_) aRen_->renderOnce();
+        // ==== 缓冲进度：每 500ms 回调一次 ====
+        const int64_t now = nowMs();
+        if (cb_ && (now - lastBufCbMs >= 500)) {
+            int cap = 0, sz = 0;
+            if (aPktQ_) { cap += aPktCap_; sz += (int)aPktQ_->size(); }
+            if (vPktQ_) { cap += vPktCap_; sz += (int)vPktQ_->size(); }
+            if (cap > 0) {
+                int percent = (int)((100LL * sz) / cap);
+                if (percent < 0)   percent = 0;
+                if (percent > 100) percent = 100;
+                cb_->onBuffering(percent);
+            }
+            lastBufCbMs = now;
+        }
 
-        // TODO: 根据队列水位/网络状态回调 onBuffering
+        // ==== 完成判定：EOF 且两侧帧队列为空 ====
+        const bool framesEmpty =
+                (!vFrmQ_ || vFrmQ_->size() == 0) &&
+                (!aFrmQ_ || aFrmQ_->size() == 0);
+
+        if (!completedNotified && framesEmpty && demux_ && demux_->isEof()) {
+            completedNotified = true;
+            playing_.store(false);
+            changeState(State::COMPLETED);
+            if (cb_) cb_->onCompletion();
+            AX_LOGI("onCompletion notified");
+        }
+
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    AXLOGI("playThread exit");
+
+    AX_LOGI("playThread exit");
 }

@@ -1,6 +1,4 @@
-//
-// Created by admin on 2025/9/18.
-//
+//AXPlayerLib/MediaCore/player/include/AXDecoder.h
 
 #ifndef AXPLAYERLIB_AXDECODER_H
 #define AXPLAYERLIB_AXDECODER_H
@@ -9,6 +7,10 @@
 #pragma once
 #include "AXQueues.h"
 #include <thread>
+
+#define AX_LOG_TAG "AXDecoder"
+#include "AXLog.h"
+
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/imgutils.h>
@@ -32,6 +34,7 @@ public:
 
 private:
     void loop_();
+    bool safePushFrame_(AVFrame* frm);
 
     AVCodecContext* ctx_{nullptr};
     AVRational tb_{1,1000};
@@ -40,6 +43,7 @@ private:
     std::thread th_;
     std::atomic<bool> abort_{false};
     bool isVideo_{false};
+
 };
 
 

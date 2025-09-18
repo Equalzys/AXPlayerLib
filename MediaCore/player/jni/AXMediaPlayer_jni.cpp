@@ -1,4 +1,4 @@
-// AXMediaPlayer_jni.cpp
+// 文件路径：MediaCore/player/jni/AXMediaPlayer_jni.cpp
 // 动态注册 JNI；桥接 Java 层 AXMediaPlayer 与 C++ 内核 AXPlayer（C++11 兼容版）
 
 #include <jni.h>
@@ -8,12 +8,12 @@
 #include <map>
 #include <memory>
 #include <mutex>
+
 extern "C" {
-#include "libavcodec/jni.h"
+#include "libavcodec/jni.h"   // av_jni_set_java_vm / av_jni_set_android_app_ctx（若启用）
 }
 
-
-#include "AXPlayer.h" // C++内核头（相对路径按你的仓库结构）
+#include "AXPlayer.h" // C++内核头（相对路径按仓库结构）
 
 // ================= 日志 =================
 #define LOG_TAG "AXMediaPlayerJNI"
@@ -63,6 +63,10 @@ extern "C" {
 // ================= VM/引用缓存 =================
 static JavaVM* g_vm = nullptr;
 
+// 持有一个（可选）App Context 的弱引用，用于 av_jni_set_android_app_ctx
+static jobject g_ctx_weak_global = nullptr;
+static std::once_flag g_appctx_once;
+
 struct JRefs {
     jclass cls_AXMediaPlayer;
 
@@ -100,6 +104,7 @@ static jclass FindGlobalClass(JNIEnv* env, const char* name) {
 static JNIEnv* GetEnvAttach(bool* didAttach) {
     *didAttach = false;
     JNIEnv* env = nullptr;
+    if (!g_vm) return nullptr;
     if (g_vm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
         if (g_vm->AttachCurrentThread(&env, nullptr) == JNI_OK) {
             *didAttach = true;
@@ -109,7 +114,7 @@ static JNIEnv* GetEnvAttach(bool* didAttach) {
 }
 
 static void DetachIfNeeded(bool didAttach) {
-    if (didAttach) g_vm->DetachCurrentThread();
+    if (didAttach && g_vm) g_vm->DetachCurrentThread();
 }
 
 static void ClearIfException(JNIEnv* env, const char* where) {
@@ -207,6 +212,48 @@ struct NativeHolder {
     NativeHolder() : player(), jcb(), window(nullptr) {}
 };
 
+// ================ 辅助：设置 Android App Context（可选） ================
+//static void TrySetAndroidAppCtxOnce(JNIEnv* env, jobject context) {
+//    if (!context || !env) return;
+//    // 仅尝试一次，且不强依赖该能力
+//    std::call_once(g_appctx_once, [env, context]() {
+//        // 缓存一个弱引用，避免持有强引用导致泄漏
+//        jobject weak = nullptr;
+//        jclass weakCls = env->FindClass("java/lang/ref/WeakReference");
+//        if (weakCls) {
+//            jmethodID ctor = env->GetMethodID(weakCls, "<init>", "(Ljava/lang/Object;)V");
+//            if (ctor) weak = env->NewObject(weakCls, ctor, context);
+//            env->DeleteLocalRef(weakCls);
+//        }
+//        if (weak) {
+//            g_ctx_weak_global = env->NewGlobalRef(weak);
+//            env->DeleteLocalRef(weak);
+//        }
+//
+//        // 可选：FFmpeg 的 Android App Context
+//        // 注意：某些构建未启用该符号；这里直接调用，链接时若缺失会报错。
+//        // 如果你希望“有符号才调用”，可在 CMake/头文件上用 #ifdef 包裹。
+//#if defined(HAVE_AV_JNI_SET_ANDROID_APP_CTX) || 1
+//        // 尝试获取强引用并传入
+//        if (g_ctx_weak_global) {
+//            jclass weakCls2 = env->GetObjectClass(g_ctx_weak_global);
+//            jmethodID getMid = env->GetMethodID(weakCls2, "get", "()Ljava/lang/Object;");
+//            jobject strongCtx = (getMid ? env->CallObjectMethod(g_ctx_weak_global, getMid) : nullptr);
+//            if (weakCls2) env->DeleteLocalRef(weakCls2);
+//            ClearIfException(env, "WeakRef.get() for app ctx");
+//            if (strongCtx) {
+//                // 直接把 jobject 作为上下文指针传入（FFmpeg 内部并不解引用，仅用于 JNI 访问）
+//                int rc = av_jni_set_android_app_ctx((void*)strongCtx);
+//                ALOGI("av_jni_set_android_app_ctx rc=%d", rc);
+//                env->DeleteLocalRef(strongCtx);
+//            } else {
+//                ALOGW("app ctx strong is null");
+//            }
+//        }
+//#endif
+//    });
+//}
+
 // ================ Native 实现 ================
 static jlong nativeCreate(JNIEnv* env, jclass, jobject jWeakSelf) {
     ALOGI("nativeCreate");
@@ -217,11 +264,15 @@ static jlong nativeCreate(JNIEnv* env, jclass, jobject jWeakSelf) {
 }
 
 static void nativeSetDataSourceUri(JNIEnv* env, jclass, jlong ctx,
-                                   jobject /*context*/, jstring juri, jobject jheaders) {
+                                   jobject context, jstring juri, jobject jheaders) {
     NativeHolder* h = reinterpret_cast<NativeHolder*>(ctx);
     if (!h) return;
 
-    const char* uri = env->GetStringUTFChars(juri, nullptr);
+    const char* uri = (juri ? env->GetStringUTFChars(juri, nullptr) : nullptr);
+    if (!uri) {
+        ALOGW("nativeSetDataSourceUri: uri is null");
+    }
+
     std::map<std::string,std::string> headers;
 
     if (jheaders) {
@@ -246,14 +297,14 @@ static void nativeSetDataSourceUri(JNIEnv* env, jclass, jlong ctx,
             jobject entry = env->CallObjectMethod(itObj, next);
             jstring kObj = (jstring)env->CallObjectMethod(entry, getKey);
             jstring vObj = (jstring)env->CallObjectMethod(entry, getVal);
-            const char* k = env->GetStringUTFChars(kObj, nullptr);
-            const char* v = env->GetStringUTFChars(vObj, nullptr);
-            headers[k ? k : ""] = v ? v : "";
-            env->ReleaseStringUTFChars(kObj, k);
-            env->ReleaseStringUTFChars(vObj, v);
+            const char* k = kObj ? env->GetStringUTFChars(kObj, nullptr) : nullptr;
+            const char* v = vObj ? env->GetStringUTFChars(vObj, nullptr) : nullptr;
+            headers[ k ? k : "" ] = v ? v : "";
+            if (kObj) env->ReleaseStringUTFChars(kObj, k);
+            if (vObj) env->ReleaseStringUTFChars(vObj, v);
             env->DeleteLocalRef(entry);
-            env->DeleteLocalRef(kObj);
-            env->DeleteLocalRef(vObj);
+            if (kObj) env->DeleteLocalRef(kObj);
+            if (vObj) env->DeleteLocalRef(vObj);
         }
 
         // 清理局部引用
@@ -267,15 +318,24 @@ static void nativeSetDataSourceUri(JNIEnv* env, jclass, jlong ctx,
     }
 
     h->player->setDataSource(uri ? uri : "", headers);
-    env->ReleaseStringUTFChars(juri, uri);
+
+//    // 可选：设置 Android App Context（仅尝试一次）
+//    if (context) {
+//        TrySetAndroidAppCtxOnce(env, context);
+//    }
+
+    if (juri) env->ReleaseStringUTFChars(juri, uri);
 }
 
 static void nativeSetDataSourcePath(JNIEnv* env, jclass, jlong ctx, jstring jpath) {
     NativeHolder* h = reinterpret_cast<NativeHolder*>(ctx);
     if (!h) return;
-    const char* path = env->GetStringUTFChars(jpath, nullptr);
+    const char* path = (jpath ? env->GetStringUTFChars(jpath, nullptr) : nullptr);
+    if (!path) {
+        ALOGW("nativeSetDataSourcePath: path is null");
+    }
     h->player->setDataSource(path ? path : "", std::map<std::string,std::string>());
-    env->ReleaseStringUTFChars(jpath, path);
+    if (jpath) env->ReleaseStringUTFChars(jpath, path);
 }
 
 static void nativePrepareAsync(JNIEnv*, jclass, jlong ctx) {
@@ -374,12 +434,15 @@ static void nativeSetSurface(JNIEnv* env, jclass, jlong ctx, jobject surface) {
     if (surface) {
         h->window = ANativeWindow_fromSurface(env, surface);
     }
-    h->player->setWindow(h->window);
+    if (h->player) h->player->setWindow(h->window);
 }
 
 static void nativeRelease(JNIEnv*, jclass, jlong ctx) {
     NativeHolder* h = reinterpret_cast<NativeHolder*>(ctx);
     if (!h) return;
+
+    // 先清回调桥，避免析构窗口期可能的回调
+    if (h->jcb) h->jcb.reset();
 
     {
         std::lock_guard<std::mutex> _l(h->mtx);
@@ -388,7 +451,10 @@ static void nativeRelease(JNIEnv*, jclass, jlong ctx) {
             h->window = nullptr;
         }
     }
+
+    // 释放底层播放器（内部会安全终止线程）
     h->player.reset();
+
     delete h;
 }
 
@@ -454,12 +520,15 @@ jint JNI_OnLoad(JavaVM* vm, void*) {
     }
 
     // 注册 native
-    if (env->RegisterNatives(cls, g_methods, sizeof(g_methods)/sizeof(g_methods[0])) != 0) {
+    if (env->RegisterNatives(cls, g_methods, (jint)(sizeof(g_methods)/sizeof(g_methods[0]))) != 0) {
         ALOGE("RegisterNatives failed");
         return JNI_ERR;
     }
+
+    // FFmpeg JNI 接入 + C++ 侧 JavaVM
     av_jni_set_java_vm(vm, nullptr);
     AXPlayer::SetJavaVM(vm);
+
     ALOGI("JNI_OnLoad OK");
     return JNI_VERSION_1_6;
 }
@@ -473,5 +542,11 @@ void JNI_OnUnload(JavaVM* vm, void*) {
         env->DeleteGlobalRef(g_jrefs.cls_AXMediaPlayer);
         g_jrefs.cls_AXMediaPlayer = nullptr;
     }
+
+    if (g_ctx_weak_global) {
+        env->DeleteGlobalRef(g_ctx_weak_global);
+        g_ctx_weak_global = nullptr;
+    }
+
     ALOGI("JNI_OnUnload");
 }

@@ -4,6 +4,9 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.Message;
 import android.util.Log;
 import android.view.SurfaceHolder;
 import android.view.View;
@@ -20,6 +23,19 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
 
     AXMediaPlayer mPlayer;
     private boolean isPrepared;
+    private Handler handler = new Handler(Looper.getMainLooper()) {
+        @Override
+        public void handleMessage(@NonNull Message msg) {
+            switch (msg.what) {
+                case 0:
+                    if (mPlayer != null) {
+                        Log.e("AXF", "getCurrentPosition()="+mPlayer.getCurrentPosition() + " / getDuration()=" + mPlayer.getDuration());
+                        sendEmptyMessageDelayed(0, 1000);
+                    }
+                    break;
+            }
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -42,7 +58,16 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
             }
         });
 
+        binding.btnResume.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                resumePlay();
+            }
+        });
     }
+
+
+    private boolean postHandle = false;
 
     private void inintPlayer() {
         if (mPlayer == null) {
@@ -54,6 +79,9 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
                 Log.i("AXP", "onPrepared");
                 isPrepared = true;
                 mPlayer.play();
+                if (!postHandle) {
+                    handler.sendEmptyMessageDelayed(0, 1000);
+                }
             }
         });
         mPlayer.setOnCompletionListener(new IAXPlayer.OnCompletionListener() {
@@ -82,6 +110,12 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         }
     }
 
+    private void resumePlay() {
+        if (mPlayer != null) {
+            mPlayer.play();
+        }
+    }
+
     private void startPlay() {
         isPrepared = false;
         if (mPlayer == null) return;
@@ -99,17 +133,27 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
 
 
     @Override
-    protected void onDestroy() {
-        super.onDestroy();
+    protected void onStop() {
+        super.onStop();
+        Log.e("AXF","MainActivity onDestroy");
         if (mPlayer != null) {
+            mPlayer.pause();
             mPlayer.release();
         }
         mPlayer = null;
     }
 
     @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (handler != null) {
+            handler.removeCallbacksAndMessages(null);
+        }
+    }
+
+    @Override
     public void surfaceCreated(@NonNull SurfaceHolder holder) {
-        if (mPlayer!=null){
+        if (mPlayer != null) {
             mPlayer.setDisplay(holder);
         }
     }
@@ -121,7 +165,7 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
 
     @Override
     public void surfaceDestroyed(@NonNull SurfaceHolder holder) {
-        if (mPlayer!=null){
+        if (mPlayer != null) {
             mPlayer.setDisplay(null);
         }
     }

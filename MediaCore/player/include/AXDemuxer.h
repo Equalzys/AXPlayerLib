@@ -1,10 +1,5 @@
-//
-// Created by admin on 2025/9/18.
-//
-
 #ifndef AXPLAYERLIB_AXDEMUXER_H
 #define AXPLAYERLIB_AXDEMUXER_H
-
 
 #pragma once
 #include <string>
@@ -12,6 +7,9 @@
 #include <thread>
 #include <atomic>
 #include "AXQueues.h"
+
+#define AX_LOG_TAG "AXQueues"
+#include "AXLog.h"
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -35,9 +33,14 @@ public:
     bool open(const std::string& url, const std::map<std::string, std::string>& headers, DemuxResult& out);
     void start(PacketQueue* aQ, PacketQueue* vQ);
     void stop();
-    bool seek(int streamIndex, int64_t pts); // pts in stream timebase
+
+    // pts: 以该 stream 的 time_base 表示
+    bool seek(int streamIndex, int64_t pts);
+
     AVFormatContext* fmt() const { return fmt_; }
     AVRational tb(int idx) const { return fmt_ ? fmt_->streams[idx]->time_base : AVRational{1,1000}; }
+
+    bool isEof() const { return eof_.load(); }
 
 private:
     void loop_();
@@ -45,10 +48,11 @@ private:
     AVFormatContext* fmt_{nullptr};
     std::thread th_;
     std::atomic<bool> abort_{false};
+    std::atomic<bool> eof_{false};
+
     PacketQueue* aQ_{nullptr};
     PacketQueue* vQ_{nullptr};
     int aIdx_{-1}, vIdx_{-1};
 };
-
 
 #endif //AXPLAYERLIB_AXDEMUXER_H

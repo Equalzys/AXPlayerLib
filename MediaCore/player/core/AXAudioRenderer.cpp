@@ -1,5 +1,3 @@
-//
-// Created by admin on 2025/9/18.
-//
+//AXPlayerLib/MediaCore/player/core/AXAudioRenderer.cpp
 
 #include "AXAudioRenderer.h"
