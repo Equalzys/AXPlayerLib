@@ -159,7 +159,7 @@ for ABI in "${TARGETS[@]}"; do
 
   # ★ 关键：统一 NO_PIE，用于彻底禁止 -fPIE/-pie 被夹带进来
   NO_PIE="-fno-pie -fno-PIE"
-  PIC_DEFS="-fPIC -fvisibility=hidden -DPIC -DCONFIG_PIC=1"
+  PIC_DEFS="-fPIC -DPIC -DCONFIG_PIC=1"
 
   export CFLAGS="-Os $PIC_DEFS -DANDROID $NO_PIE $EXTRA_CFLAGS"
   export CXXFLAGS="-Os $PIC_DEFS -DANDROID $NO_PIE"
@@ -236,7 +236,7 @@ for ABI in "${TARGETS[@]}"; do
   THIRD_A=()
 
   # FFmpeg 核心 .a
-  for a in libavcodec.a libavformat.a libavutil.a libswresample.a libswscale.a libavfilter.a libavdevice.a; do
+  for a in libavcodec.a libavformat.a libavutil.a libswresample.a libswscale.a libavfilter.a; do
     [ -f "$FFLIB/$a" ] && FF_A+=("$FFLIB/$a")
   done
 
@@ -268,19 +268,17 @@ for ABI in "${TARGETS[@]}"; do
     file "$f" | sed 's/^/      /'
   done
 
-    # 导出包装源（编译成 .o）
-    EXPORT_SRC="$SRC_BASE/av_jni_export_wrap.c"
-    EXPORT_OBJ="$BUILD_DIR/av_jni_export_wrap.o"
-    mkdir -p "$(dirname "$EXPORT_SRC")"
-    # 如果第一次没有该文件，可在构建前确保写入；推荐把该源文件纳入仓库
-    $CC -fPIC -c "$EXPORT_SRC" -o "$EXPORT_OBJ"
-
-# 生成 version script
+# 生成 version script ffmpeg的符号显示，三方库的符号隐藏
 cat > "$BUILD_DIR/axfcore.map" <<'EOF'
   AXFCORE {
     global:
-      axf_*;
-      axf_av_jni_set_java_vm;
+      av*;
+      swr_*;
+      sws_*;
+      av_jni_set_java_vm;
+      av_jni_get_java_vm;
+      av_jni_set_android_app_ctx;
+      av_jni_get_android_app_ctx;
     local:
       *;
   };
@@ -288,7 +286,7 @@ EOF
 
   echo ">>> [$ABI] 正在链接单一 so: $(basename "$OUT_SO")"
   EXTRA_LINK_FIX=""
-  [ "$ABI" = "armeabi-v7a" ] && EXTRA_LINK_FIX="-Wl,--fix-cortex-a8"
+  [ "$ABI" = "armeabi-v7a" ] && EXTRA_LINK_FIX="-Wl,--fix-cortex-a8 -latomic"
 
   "$CXX" --sysroot="$TOOLCHAIN/sysroot" -shared -o "$OUT_SO" \
     -Wl,-soname,libAXFCore.so \
@@ -296,7 +294,6 @@ EOF
     -Wl,--hash-style=sysv -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=65536 -Wl,-Bsymbolic \
     -Wl,--no-undefined -Wl,--gc-sections -Wl,--no-as-needed \
     -Wl,-Map,"$OUT_SO.map" -Wl,--cref \
-    "$EXPORT_OBJ" \
     -Wl,--whole-archive  "${FF_A[@]}"  -Wl,--no-whole-archive \
     "${THIRD_A[@]}" \
     -llog -landroid -ldl -lmediandk -lm -lz \

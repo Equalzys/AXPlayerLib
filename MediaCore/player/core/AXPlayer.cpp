@@ -1,42 +1,51 @@
-#include "../include/AXPlayer.h"
+#include "AXPlayer.h"                 // 项目内相对包含（不要再用 ../include/AXPlayer.h）
 #include <android/log.h>
-#include <media/NdkMediaExtractor.h>
-#include <media/NdkMediaCodec.h>
-#include <media/NdkMediaFormat.h>
 #include <android/native_window.h>
+#include <jni.h>
 #include <chrono>
 #include <thread>
-#include <jni.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
 
+#include "AXDemuxer.h"
+#include "AXDecoder.h"
+#include "AXVideoRenderer.h"
+#include "AXAudioRenderer.h"
+#include "AXClock.h"
+#include "AXQueues.h"
+#include "AXErrors.h"
+
+extern "C" {
+#include <libavformat/avformat.h>     // AVFormatContext / av_rescale_q 依赖
+#include <libavutil/avutil.h>
+}
+
+// 统一日志宏（兼容历史写法）
 #define AXLOGI(...) __android_log_print(ANDROID_LOG_INFO,  "AXPlayer", __VA_ARGS__)
-#define AXLOGE(...) __android_log_print(ANDROID_LOG_ERROR, "AXPlayer", __VA_ARGS__)
 #define AXLOGW(...) __android_log_print(ANDROID_LOG_WARN,  "AXPlayer", __VA_ARGS__)
+#define AXLOGE(...) __android_log_print(ANDROID_LOG_ERROR, "AXPlayer", __VA_ARGS__)
 
 static inline int64_t nowMs() {
     using namespace std::chrono;
     return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
 }
-// ★ 实现静态 JavaVM 保存
-// 1) 定义静态成员
+
+// ===== JavaVM 线程附着工具 =====
+
+// 静态 JavaVM 保存（定义）
 JavaVM* AXPlayer::sVm = nullptr;
 
-// 2) 提供静态方法实现
-void AXPlayer::SetJavaVM(JavaVM* vm) {
-    AXPlayer::sVm = vm;
-}
-JavaVM* AXPlayer::GetJavaVM() {
-    return AXPlayer::sVm;
-}
+// 静态设置/获取
+void AXPlayer::SetJavaVM(JavaVM* vm) { AXPlayer::sVm = vm; }
+JavaVM* AXPlayer::GetJavaVM()        { return AXPlayer::sVm; }
 
-// 3) 线程作用域：进入线程时 attach，退出时 detach
+// 线程作用域：进入线程时 attach，退出时 detach
 struct JniThreadScope {
     bool attached = false;
     JNIEnv* env = nullptr;
     JniThreadScope() {
-        JavaVM* vm = AXPlayer::GetJavaVM();   // ★ 改：通过 getter 访问
+        JavaVM* vm = AXPlayer::GetJavaVM();
         if (vm && vm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
             if (vm->AttachCurrentThread(&env, nullptr) == JNI_OK) {
                 attached = true;
@@ -44,82 +53,109 @@ struct JniThreadScope {
         }
     }
     ~JniThreadScope() {
-        JavaVM* vm = AXPlayer::GetJavaVM();   // ★ 改：通过 getter 访问
-        if (attached && vm) {
-            vm->DetachCurrentThread();
-        }
+        JavaVM* vm = AXPlayer::GetJavaVM();
+        if (attached && vm) vm->DetachCurrentThread();
     }
 };
+
+// ===== AXPlayer 实现 =====
 
 AXPlayer::AXPlayer(std::shared_ptr<AXPlayerCallback> cb) : cb_(std::move(cb)) {
     AXLOGI("AXPlayer ctor");
 }
 
 AXPlayer::~AXPlayer() {
-    AXLOGI("AXPlayer dtor");
-    abort_ = true;
-    playing_ = false;
-
-    if (ioThread_.joinable()) ioThread_.join();
+    AXLOGI("AXPlayer dtor: begin");
+    abort_.store(true);
+    if (ioThread_.joinable())   ioThread_.join();
     if (playThread_.joinable()) playThread_.join();
 
-    resetCodec_l(true);
+    // 安全释放窗口（如果 AXPlayer 持有）
+    {
+        std::lock_guard<std::mutex> lk(wmtx_);
+        if (window_) {
+            // 如果在 setWindow() 里通过 ANativeWindow_acquire 接管了，需要这里 release
+            // ANativeWindow_release(window_);
+            window_ = nullptr;
+        }
+    }
+    AXLOGI("AXPlayer dtor: done");
 }
 
 void AXPlayer::setDataSource(const std::string& urlOrPath, const std::map<std::string, std::string>& headers) {
-    source_ = urlOrPath;
+    source_  = urlOrPath;
     headers_ = headers;
     AXLOGI("setDataSource: %s", source_.c_str());
 }
 
 void AXPlayer::prepareAsync() {
-    if (state_ != State::IDLE && state_ != State::PAUSED) {
-        AXLOGW("prepareAsync in state != IDLE/PAUSED");
+    if (state_ != State::IDLE && state_ != State::STOPPED) {
+        AXLOGW("prepareAsync called in wrong state");
+        return;
     }
     changeState(State::PREPARING);
-    abort_ = false;
-    preparedNotified_ = false;
-
-    if (ioThread_.joinable()) ioThread_.join();
+    abort_.store(false);
     ioThread_ = std::thread(&AXPlayer::ioThreadLoop, this);
 }
 
 void AXPlayer::start() {
-    if (state_ == State::PREPARED || state_ == State::PAUSED) {
-        playing_ = true;
-        changeState(State::PLAYING);
-        if (!playThread_.joinable()) {
+    if (state_ == State::PREPARED || state_ == State::PAUSED || state_ == State::COMPLETED) {
+        playing_.store(true);
+        if (!playThread_.joinable())
             playThread_ = std::thread(&AXPlayer::playThreadLoop, this);
-        } else {
-            cv_.notify_all();
-        }
-        AXLOGI("start play");
+        if (clock_) clock_->pause(false);
+        changeState(State::PLAYING);
+        AXLOGI("start");
     } else {
-        AXLOGW("start in invalid state");
+        AXLOGW("start ignored: state=%d", (int)state_.load());
     }
 }
 
 void AXPlayer::pause() {
-    playing_ = false;
-    changeState(State::PAUSED);
     AXLOGI("pause");
+    playing_.store(false);
+    if (clock_) clock_->pause(true);
+    changeState(State::PAUSED);
 }
 
-void AXPlayer::seekTo(int64_t /*msec*/) {
-    // 第1步不实现，可在 FFmpeg 接入后做准确 seek
-    AXLOGW("seekTo not implemented in step1");
+void AXPlayer::seekTo(int64_t msec) {
+    AXLOGI("seekTo: %lld ms", (long long)msec);
+    if (!demux_) return;
+
+    int targetStream = -1;
+    AVRational tb{1,1000};
+    if (vDec_ && vStreamIdx_ >= 0) {
+        targetStream = vStreamIdx_;
+        tb = vDec_->timeBase();
+    } else if (aDec_ && aStreamIdx_ >= 0) {
+        targetStream = aStreamIdx_;
+        tb = aDec_->timeBase();
+    }
+    if (targetStream < 0) return;
+
+    // ms -> stream timebase
+    int64_t pts = av_rescale_q(msec, AVRational{1,1000}, tb);
+
+    // flush 队列与解码器
+    if (aDec_) aDec_->flush();
+    if (vDec_) vDec_->flush();
+    if (aPktQ_) aPktQ_->flush();
+    if (vPktQ_) vPktQ_->flush();
+    if (aFrmQ_) aFrmQ_->flush();
+    if (vFrmQ_) vFrmQ_->flush();
+
+    // demux seek
+    demux_->seek(targetStream, pts);
+
+    // 时钟重置
+    if (clock_) clock_->reset(msec * 1000);
 }
 
 bool AXPlayer::isPlaying() { return playing_.load(); }
-
-void AXPlayer::setSpeed(float speed) { speed_ = speed; }
-
+void AXPlayer::setSpeed(float speed) { speed_ = speed; if (clock_) clock_->setSpeed(speed); }
 int64_t AXPlayer::getCurrentPositionMs() { return positionMs_.load(); }
-
 int64_t AXPlayer::getDurationMs() { return durationMs_; }
-
-void AXPlayer::setVolume(float l, float r) { volL_ = l; volR_ = r; }
-
+void AXPlayer::setVolume(float l, float r) { volL_ = l; volR_ = r; /* TODO: 传给音频渲染 */ }
 int AXPlayer::getVideoWidth() { return videoW_; }
 int AXPlayer::getVideoHeight() { return videoH_; }
 int AXPlayer::getVideoSarNum() { return sarNum_; }
@@ -127,217 +163,131 @@ int AXPlayer::getVideoSarDen() { return sarDen_; }
 int AXPlayer::getAudioSessionId() { return audioSessionId_; }
 
 void AXPlayer::setWindow(ANativeWindow* window) {
-    std::lock_guard<std::mutex> lg(wmtx_);
-    window_ = window; // 不持有引用，JNI 层管理
-    AXLOGI("setWindow: %p", window_);
+    std::lock_guard<std::mutex> lk(wmtx_);
+    // 如果 JNI 侧释放了 fromSurface 的引用，这里可采用 acquire 接管所有权
+    // if (window) ANativeWindow_acquire(window);
+    window_ = window;
+    if (vRen_) vRen_->init(window_, videoW_, videoH_, sarNum_, sarDen_);
 }
 
-void AXPlayer::changeState(State s) { state_ = s; }
+void AXPlayer::changeState(State s) { state_.store(s); }
 
-void AXPlayer::postError(int what, int extra, const std::string& msg) {
+void AXPlayer::notifyError(int what, int extra, const std::string& msg) {
     changeState(State::ERROR);
-    AXLOGE("error: what=%d extra=%d msg=%s", what, extra, msg.c_str());
+    playing_.store(false);
+    AXLOGE("notifyError what=%d extra=%d msg=%s", what, extra, msg.c_str());
     if (cb_) cb_->onError(what, extra, msg);
 }
 
-void AXPlayer::resetCodec_l(bool releaseExtractor) {
-    if (vcodec_) {
-        AMediaCodec_stop(vcodec_);
-        AMediaCodec_delete(vcodec_);
-        vcodec_ = nullptr;
-    }
-    if (releaseExtractor && extractor_) {
-        AMediaExtractor_delete(extractor_);
-        extractor_ = nullptr;
-    }
-    videoTrackIndex_ = -1;
-}
-
-static inline bool is_abs_local_path(const std::string& s) {
-    return !s.empty() && s[0] == '/';
-}
-
-bool AXPlayer::setupExtractor_l() {
-    resetCodec_l(true);
-
-    extractor_ = AMediaExtractor_new();
-    if (!extractor_) { postError(-100, -1, "AMediaExtractor_new failed"); return false; }
-
-    media_status_t r = AMEDIA_ERROR_UNKNOWN;
-
-    if (is_abs_local_path(source_)) {
-        // ★ 本地绝对路径 → 用 FD 方式打开（对上层仍是“传路径”）
-        int fd = open(source_.c_str(), O_RDONLY | O_CLOEXEC);
-        if (fd < 0) {
-            postError(-101, errno, "open file failed");
-            return false;
-        }
-        struct stat st; memset(&st, 0, sizeof(st));
-        off64_t length = 0;
-        if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode)) length = (off64_t)st.st_size;
-
-        r = AMediaExtractor_setDataSourceFd(extractor_, fd, 0, length > 0 ? length : LONG_MAX);
-        close(fd);
-    } else {
-        // 仍保留原来的直开路径（如未来你要支持 asset 或别的）
-        r = AMediaExtractor_setDataSource(extractor_, source_.c_str());
-    }
-
-    if (r != AMEDIA_OK) {
-        postError(-101, r, "setDataSource failed");
-        return false;
-    }
-
-    // 下面保持你的原逻辑：枚举轨道、选择视频轨……
-    const size_t trackCnt = AMediaExtractor_getTrackCount(extractor_);
-    for (size_t i = 0; i < trackCnt; ++i) {
-        AMediaFormat* fmt = AMediaExtractor_getTrackFormat(extractor_, i);
-        const char* mime = nullptr;
-        if (AMediaFormat_getString(fmt, AMEDIAFORMAT_KEY_MIME, &mime) && mime) {
-            if (strncmp(mime, "video/", 6) == 0) {
-                videoTrackIndex_ = static_cast<int>(i);
-                int32_t w=0,h=0;
-                AMediaFormat_getInt32(fmt, AMEDIAFORMAT_KEY_WIDTH, &w);
-                AMediaFormat_getInt32(fmt, AMEDIAFORMAT_KEY_HEIGHT, &h);
-                videoW_ = w; videoH_ = h;
-                AXLOGI("select video track %d %dx%d mime=%s", videoTrackIndex_, w, h, mime);
-                AMediaFormat_delete(fmt);
-                break;
-            }
-        }
-        AMediaFormat_delete(fmt);
-    }
-
-    if (videoTrackIndex_ < 0) {
-        postError(-102, -1, "no video track");
-        return false;
-    }
-    AMediaExtractor_selectTrack(extractor_, (size_t)videoTrackIndex_);
-    return true;
-}
-
-bool AXPlayer::setupVideoCodec_l() {
-    if (!window_) { postError(-103, -1, "window null"); return false; }
-
-    AMediaFormat* vfmt = AMediaExtractor_getTrackFormat(extractor_, (size_t)videoTrackIndex_);
-    const char* mime = nullptr;
-    if (!AMediaFormat_getString(vfmt, AMEDIAFORMAT_KEY_MIME, &mime) || !mime) {
-        AMediaFormat_delete(vfmt);
-        postError(-104, -1, "video mime null");
-        return false;
-    }
-
-    vcodec_ = AMediaCodec_createDecoderByType(mime);
-    if (!vcodec_) {
-        AMediaFormat_delete(vfmt);
-        postError(-105, -1, "createDecoderByType failed");
-        return false;
-    }
-
-    media_status_t r = AMediaCodec_configure(vcodec_, vfmt, window_, nullptr, 0);
-    AMediaFormat_delete(vfmt);
-    if (r != AMEDIA_OK) {
-        postError(-106, r, "AMediaCodec_configure failed");
-        return false;
-    }
-
-    r = AMediaCodec_start(vcodec_);
-    if (r != AMEDIA_OK) {
-        postError(-107, r, "AMediaCodec_start failed");
-        return false;
-    }
-
-    AXLOGI("video codec started");
-    return true;
-}
-
 void AXPlayer::ioThreadLoop() {
-    JniThreadScope jscope;           // ★★★ 关键：确保这个线程是“Java 线程”
-    AXLOGI("ioThreadLoop begin");
-    if (!setupExtractor_l()) return;
-    if (!setupVideoCodec_l()) return;
+    JniThreadScope jscope;
+    AXLOGI("ioThread start");
+
+    demux_.reset(new AXDemuxer());
+    aPktQ_.reset(new PacketQueue(256));
+    vPktQ_.reset(new PacketQueue(256));
+    aFrmQ_.reset(new FrameQueue(64));
+    vFrmQ_.reset(new FrameQueue(32));
+    clock_.reset(new AXClock());
+
+    DemuxResult info;
+    if (!demux_->open(source_, headers_, info)) {
+        notifyError(AXERR_SOURCE_OPEN, -1, "open source failed");
+        return;
+    }
+    if (info.audioStream < 0 && info.videoStream < 0) {
+        notifyError(AXERR_NO_STREAM, -1, "no audio/video stream");
+        return;
+    }
+
+    durationMs_ = info.durationUs / 1000;
+    videoW_ = info.width;
+    videoH_ = info.height;
+    sarNum_ = info.sarNum;
+    sarDen_ = info.sarDen;
+
+    aStreamIdx_ = info.audioStream;
+    vStreamIdx_ = info.videoStream;
+
+    bool audioOk = false, videoOk = false;
+    if (info.audioStream >= 0) {
+        aDec_.reset(new AXDecoder());
+        auto st = demux_->fmt()->streams[info.audioStream];
+        if (!aDec_->open(st->codecpar, info.aTimeBase, false)) {
+            notifyError(AXERR_DECODER_OPEN, st->codecpar->codec_id, "open audio decoder failed");
+            aDec_.reset();
+        } else {
+            aDec_->setPacketQueue(aPktQ_.get());
+            aDec_->setFrameQueue(aFrmQ_.get());
+            audioOk = true;
+        }
+    }
+    if (info.videoStream >= 0) {
+        vDec_.reset(new AXDecoder());
+        auto st = demux_->fmt()->streams[info.videoStream];
+        if (!vDec_->open(st->codecpar, info.vTimeBase, true)) {
+            notifyError(AXERR_DECODER_OPEN, st->codecpar->codec_id, "open video decoder failed");
+            vDec_.reset();
+        } else {
+            vDec_->setPacketQueue(vPktQ_.get());
+            vDec_->setFrameQueue(vFrmQ_.get());
+            videoOk = true;
+        }
+    }
+    if (!audioOk && !videoOk) {
+        notifyError(AXERR_DECODER_OPEN, -1, "no decoder available");
+        return;
+    }
+
+    vRen_.reset(new AXVideoRenderer());
+    aRen_.reset(new AXAudioRenderer());
+    if (window_ && !vRen_->init(window_, videoW_, videoH_, sarNum_, sarDen_)) {
+        notifyError(AXERR_RENDER, -1, "video renderer init failed");
+        // 不中断：允许纯音频播放
+    }
+    if (aDec_ && aDec_->ctx()) {
+        if (!aRen_->init(aDec_->ctx()->sample_rate, aDec_->ctx()->ch_layout.nb_channels, aDec_->ctx()->sample_fmt)) {
+            AXLOGW("audio renderer init failed");
+        }
+    }
+
+    // 上层回调：prepared + 视频尺寸
+    if (cb_) {
+        cb_->onVideoSizeChanged(videoW_, videoH_, sarNum_, sarDen_);
+        cb_->onPrepared();
+    }
     changeState(State::PREPARED);
-    if (!preparedNotified_.exchange(true) && cb_) cb_->onPrepared();
-    AXLOGI("ioThreadLoop prepared");
+
+    // 启动解复用与解码线程
+    demux_->start(aPktQ_.get(), vPktQ_.get());
+    if (aDec_) aDec_->start();
+    if (vDec_) vDec_->start();
+
+    AXLOGI("ioThread prepared");
 }
 
 void AXPlayer::playThreadLoop() {
     JniThreadScope jscope;
-    AXLOGI("playThreadLoop begin");
-    if (!vcodec_) { AXLOGW("no codec in playThread"); return; }
-
-    // 简单的喂入/拉取循环：视频-only，不做复杂同步
-    bool inputEOS = false;
-    bool outputEOS = false;
-    int64_t startMs = nowMs();
-
-    while (!abort_) {
-        if (!playing_) {
-            std::unique_lock<std::mutex> lk(mtx_);
-            cv_.wait_for(lk, std::chrono::milliseconds(50));
+    AXLOGI("playThread start");
+    while (!abort_.load()) {
+        if (!playing_.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
+        // 主时钟：优先音频
+        int64_t masterUs = clock_ ? clock_->ptsUs() : 0;
+        positionMs_.store(masterUs / 1000);
 
-        // input
-        if (!inputEOS) {
-            ssize_t idx = AMediaCodec_dequeueInputBuffer(vcodec_, 10 * 1000);
-            if (idx >= 0) {
-                size_t bufSize = 0;
-                uint8_t* buf = AMediaCodec_getInputBuffer(vcodec_, (size_t)idx, &bufSize);
-                if (buf) {
-                    AMediaCodecBufferInfo info{};
-                    int sampleSize = AMediaExtractor_readSampleData(extractor_, buf, bufSize);
-                    int64_t pts = AMediaExtractor_getSampleTime(extractor_);
-                    if (sampleSize < 0) {
-                        AMediaCodec_queueInputBuffer(vcodec_, (size_t)idx, 0, 0, 0,
-                                                     AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
-                        inputEOS = true;
-                    } else {
-                        AMediaCodec_queueInputBuffer(vcodec_, (size_t)idx, 0,
-                                                     (size_t)sampleSize, (uint64_t)pts, 0);
-                        AMediaExtractor_advance(extractor_);
-                    }
-                }
-            }
-        }
+        // 视频渲染（被动拉）
+        if (vRen_) vRen_->setFrameQueue(vFrmQ_.get());
+        if (vRen_) vRen_->drawLoopOnce(masterUs);
 
-        // output
-        if (!outputEOS) {
-            AMediaCodecBufferInfo info{};
-            ssize_t oidx = AMediaCodec_dequeueOutputBuffer(vcodec_, &info, 10 * 1000);
-            if (oidx >= 0) {
-                bool eos = (info.flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) != 0;
-                // 简单基于 pts 的节拍：尽量避免跑太快（非严格同步）
-                if (info.presentationTimeUs > 0) {
-                    int64_t elapsed = nowMs() - startMs;
-                    int64_t target = info.presentationTimeUs / 1000;
-                    if (target > elapsed + 3) {
-                        std::this_thread::sleep_for(std::chrono::milliseconds(target - elapsed));
-                    }
-                    positionMs_ = target;
-                }
-                AMediaCodec_releaseOutputBuffer(vcodec_, (size_t)oidx, true /*render*/);
+        // 音频渲染（占位，后续接 OpenSL ES/AAudio 回调）
+        if (aRen_) aRen_->setFrameQueue(aFrmQ_.get());
+        if (aRen_) aRen_->renderOnce();
 
-                if (eos) {
-                    outputEOS = true;
-                    playing_ = false;
-                    changeState(State::COMPLETED);
-                    if (cb_) cb_->onCompletion();
-                    AXLOGI("playback complete");
-                    break;
-                }
-            } else if (oidx == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED) {
-                AMediaFormat* newFmt = AMediaCodec_getOutputFormat(vcodec_);
-                int32_t w=0,h=0;
-                AMediaFormat_getInt32(newFmt, AMEDIAFORMAT_KEY_WIDTH, &w);
-                AMediaFormat_getInt32(newFmt, AMEDIAFORMAT_KEY_HEIGHT, &h);
-                videoW_ = w; videoH_ = h;
-                AXLOGI("output format changed: %dx%d", w, h);
-                if (cb_) cb_->onVideoSizeChanged(w, h, sarNum_, sarDen_);
-                AMediaFormat_delete(newFmt);
-            }
-        }
+        // TODO: 根据队列水位/网络状态回调 onBuffering
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-
-    AXLOGI("playThreadLoop end");
+    AXLOGI("playThread exit");
 }

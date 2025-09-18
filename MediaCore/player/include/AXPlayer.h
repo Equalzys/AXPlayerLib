@@ -10,112 +10,143 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
-#include <vector>
+#include <android/native_window.h>
 #include <jni.h>
+#include "AXQueues.h"
 
-// 前置声明，避免强依赖 NDK 头扫描
-struct ANativeWindow;
-struct AMediaExtractor;
-struct AMediaCodec;
-struct AMediaFormat;
+extern "C" {
+#include <libavutil/rational.h>
+}
 
+class AXDemuxer;
+
+class AXDecoder;
+
+class AXVideoRenderer;
+
+class AXAudioRenderer;
+
+class AXClock;
+
+
+// 上层回调接口（与 AXMediaPlayer.java 对应）
 class AXPlayerCallback {
 public:
     virtual ~AXPlayerCallback() = default;
+
     virtual void onPrepared() = 0;
+
     virtual void onCompletion() = 0;
+
     virtual void onBuffering(int percent) = 0;
+
     virtual void onVideoSizeChanged(int w, int h, int sarNum, int sarDen) = 0;
-    virtual void onError(int what, int extra, const std::string& msg) = 0;
+
+    virtual void onError(int what, int extra, const std::string &msg) = 0;
 };
 
 class AXPlayer {
 public:
-    explicit AXPlayer(std::shared_ptr<AXPlayerCallback> cb);
+    explicit AXPlayer(std::shared_ptr <AXPlayerCallback> cb);
+
     ~AXPlayer();
 
-    // 数据源
-    void setDataSource(const std::string& urlOrPath, const std::map<std::string,std::string>& headers);
+    // 数据源 & 控制
+    void
+    setDataSource(const std::string &urlOrPath, const std::map <std::string, std::string> &headers);
 
-    // 生命周期
     void prepareAsync();
+
     void start();
+
     void pause();
-    void seekTo(int64_t msec); // 第1步先不实现
+
+    void seekTo(int64_t msec);
+
     bool isPlaying();
 
-    // 属性/控制
-    void setSpeed(float speed); // 第1步先不实现
-    int64_t getCurrentPositionMs(); // 第1步先不实现（返回解码进度估计）
-    int64_t getDurationMs();        // 第1步先不实现
-    void setVolume(float left, float right); // 第1步先不实现
+    void setSpeed(float speed);
+
+    // 查询
+    int64_t getCurrentPositionMs();
+
+    int64_t getDurationMs();
+
+    void setVolume(float left, float right);
+
     int getVideoWidth();
+
     int getVideoHeight();
+
     int getVideoSarNum();
+
     int getVideoSarDen();
-    int getAudioSessionId(); // 第1步先不实现（返回0）
-    void setWindow(ANativeWindow* window); // 不持有引用，JNI 管理生命周期
-    // ★ 新增：在 JNI_OnLoad 里把 JavaVM 传进来
-    static void SetJavaVM(JavaVM* vm);
-    static JavaVM* GetJavaVM();
+
+    int getAudioSessionId();
+
+    void setWindow(ANativeWindow *window);
+
+    // JavaVM 设置（JNI_OnLoad 中调用）
+    static void SetJavaVM(JavaVM *vm);
+
+    static JavaVM *GetJavaVM();
+
 private:
-    enum class State { IDLE, PREPARING, PREPARED, PLAYING, PAUSED, COMPLETED, ERROR };
+    enum class State {
+        IDLE, STOPPED, PREPARING, PREPARED, PLAYING, PAUSED, COMPLETED, ERROR
+    };
 
-    // 线程
-    void ioThreadLoop();   // 负责提取器与编解码初始化
-    void playThreadLoop(); // 负责喂入/拉取解码数据（视频-only）
-
-    // 内部
+    void ioThreadLoop();   // 打开输入、启动 demuxer、创建 decoders
+    void playThreadLoop(); // 渲染驱动与时钟同步
     void changeState(State s);
-    void postError(int what, int extra, const std::string& msg);
-    void resetCodec_l(bool releaseExtractor);
-    bool setupExtractor_l();     // 解析媒体、选择视频轨
-    bool setupVideoCodec_l();    // 配置视频硬解，绑定 window
-    void drainDecoderLoop();     // 解码循环（在 playThread）
+
+    void notifyError(int what, int extra, const std::string &msg);
 
 private:
-    // 回调
-    std::shared_ptr<AXPlayerCallback> cb_;
+    std::shared_ptr <AXPlayerCallback> cb_;
+    std::atomic <State> state_{State::IDLE};
 
-    // 状态
-    std::atomic<State> state_{State::IDLE};
-    std::atomic<bool> abort_{false};
-    std::atomic<bool> playing_{false};
-
-    // 源
     std::string source_;
-    std::map<std::string,std::string> headers_;
+    std::map <std::string, std::string> headers_;
 
-    // 窗口
-    ANativeWindow* window_ = nullptr; // 外部生命周期
-    std::mutex wmtx_;
-
-    // 线程
+    // 线程 & 控制
     std::thread ioThread_;
     std::thread playThread_;
-
-    // 同步
-    std::mutex mtx_;
-    std::condition_variable cv_;
+    std::atomic<bool> abort_{false};
+    std::atomic<bool> playing_{false};
+    std::mutex wmtx_;
 
     // 媒体信息
-    int videoW_ = 0, videoH_ = 0;
-    int sarNum_ = 1, sarDen_ = 1;
-    int64_t durationMs_ = 0;
-    std::atomic<int64_t> positionMs_{0};
-    float speed_ = 1.0f;
-    float volL_ = 1.0f, volR_ = 1.0f;
-    int audioSessionId_ = 0;
+    int videoW_{0}, videoH_{0};
+    int sarNum_{1}, sarDen_{1};
+    int64_t durationMs_{0};
+    std::atomic <int64_t> positionMs_{0};
+    float speed_{1.0f};
+    float volL_{1.0f}, volR_{1.0f};
+    int audioSessionId_{0};
 
-    // NDK 媒体组件
-    AMediaExtractor* extractor_ = nullptr;
-    AMediaCodec* vcodec_ = nullptr;
-    int videoTrackIndex_ = -1;
+    int aStreamIdx_{-1};
+    int vStreamIdx_{-1};
 
-    // 控制
-    std::atomic<bool> preparedNotified_{false};
+    // 组件
+    std::unique_ptr <AXDemuxer> demux_;
+    std::unique_ptr <AXDecoder> aDec_;
+    std::unique_ptr <AXDecoder> vDec_;
+    std::unique_ptr <AXVideoRenderer> vRen_;
+    std::unique_ptr <AXAudioRenderer> aRen_;
+    std::unique_ptr <AXClock> clock_;
 
-    static JavaVM* sVm;
+    // 队列
+    std::unique_ptr <PacketQueue> aPktQ_;
+    std::unique_ptr <PacketQueue> vPktQ_;
+    std::unique_ptr <FrameQueue> aFrmQ_;
+    std::unique_ptr <FrameQueue> vFrmQ_;
+
+    // 渲染
+    ANativeWindow *window_{nullptr};
+
+    // 全局 JavaVM
+    static JavaVM *sVm;
 };
 
 #endif //AXPLAYERLIB_AXPLAYER_H

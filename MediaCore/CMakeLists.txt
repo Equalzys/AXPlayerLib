@@ -68,8 +68,6 @@ target_compile_options(AXPlayer PRIVATE
         -fvisibility=hidden
         -ffunction-sections
         -fdata-sections
-        -fno-exceptions
-        -fno-rtti
 )
 #target_compile_definitions(AXPlayer PRIVATE ST_NO_EXCEPTION)
 
@@ -95,16 +93,28 @@ endif ()
 
 # ===================== 系统库链接 =====================
 # 建议显式 find_library，避免某些 NDK 版本名字大小写差异
+find_package(Threads REQUIRED)
+
 find_library(log-lib      log)
 find_library(android-lib  android)
 find_library(egl-lib      EGL)
 find_library(glesv3-lib   GLESv3)
 find_library(jnigfx-lib   jnigraphics)
 find_library(mediandk-lib mediandk)
+find_library(dl-lib       dl)
 
-set_source_files_properties(${SOUNDTOUCH_SRC}
-        PROPERTIES COMPILE_OPTIONS "-fexceptions"
-)
+# 仅在 armeabi-v7a 下兜底链接 libatomic；arm64-v8a / 其他 ABI 不需要
+set(AXPLAYER_EXTRA_LIBS "")
+if (ANDROID_ABI STREQUAL "armeabi-v7a")
+    find_library(atomic-lib atomic)
+    if (atomic-lib)
+        list(APPEND AXPLAYER_EXTRA_LIBS ${atomic-lib})
+    endif ()
+endif ()
+
+#set_source_files_properties(${SOUNDTOUCH_SRC}
+#        PROPERTIES COMPILE_OPTIONS "-fexceptions"
+#)
 
 target_link_libraries(AXPlayer
         ${log-lib}
@@ -114,6 +124,8 @@ target_link_libraries(AXPlayer
         ${jnigfx-lib}
         ${mediandk-lib}
         ${dl-lib}
+        ${AXPLAYER_EXTRA_LIBS}
+        Threads::Threads
 )
 
 set(CMAKE_SHARED_LINKER_FLAGS

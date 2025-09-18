@@ -8,10 +8,12 @@
 #include <map>
 #include <memory>
 #include <mutex>
-extern "C" int axf_av_jni_set_java_vm(JavaVM* vm);
+extern "C" {
+#include "libavcodec/jni.h"
+}
 
 
-#include "../include/AXPlayer.h" // C++内核头（相对路径按你的仓库结构）
+#include "AXPlayer.h" // C++内核头（相对路径按你的仓库结构）
 
 // ================= 日志 =================
 #define LOG_TAG "AXMediaPlayerJNI"
@@ -456,9 +458,7 @@ jint JNI_OnLoad(JavaVM* vm, void*) {
         ALOGE("RegisterNatives failed");
         return JNI_ERR;
     }
-//    av_jni_set_java_vm(vm, nullptr);
-//    TrySetFFmpegJavaVM(vm);
-    axf_av_jni_set_java_vm(vm);
+    av_jni_set_java_vm(vm, nullptr);
     AXPlayer::SetJavaVM(vm);
     ALOGI("JNI_OnLoad OK");
     return JNI_VERSION_1_6;
