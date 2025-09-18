@@ -11,6 +11,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <vector>
+#include <jni.h>
 
 // 前置声明，避免强依赖 NDK 头扫描
 struct ANativeWindow;
@@ -54,7 +55,9 @@ public:
     int getVideoSarDen();
     int getAudioSessionId(); // 第1步先不实现（返回0）
     void setWindow(ANativeWindow* window); // 不持有引用，JNI 管理生命周期
-
+    // ★ 新增：在 JNI_OnLoad 里把 JavaVM 传进来
+    static void SetJavaVM(JavaVM* vm);
+    static JavaVM* GetJavaVM();
 private:
     enum class State { IDLE, PREPARING, PREPARED, PLAYING, PAUSED, COMPLETED, ERROR };
 
@@ -111,6 +114,8 @@ private:
 
     // 控制
     std::atomic<bool> preparedNotified_{false};
+
+    static JavaVM* sVm;
 };
 
 #endif //AXPLAYERLIB_AXPLAYER_H

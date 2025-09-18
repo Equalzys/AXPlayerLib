@@ -268,15 +268,35 @@ for ABI in "${TARGETS[@]}"; do
     file "$f" | sed 's/^/      /'
   done
 
+    # 导出包装源（编译成 .o）
+    EXPORT_SRC="$SRC_BASE/av_jni_export_wrap.c"
+    EXPORT_OBJ="$BUILD_DIR/av_jni_export_wrap.o"
+    mkdir -p "$(dirname "$EXPORT_SRC")"
+    # 如果第一次没有该文件，可在构建前确保写入；推荐把该源文件纳入仓库
+    $CC -fPIC -c "$EXPORT_SRC" -o "$EXPORT_OBJ"
+
+# 生成 version script
+cat > "$BUILD_DIR/axfcore.map" <<'EOF'
+  AXFCORE {
+    global:
+      axf_*;
+      axf_av_jni_set_java_vm;
+    local:
+      *;
+  };
+EOF
+
   echo ">>> [$ABI] 正在链接单一 so: $(basename "$OUT_SO")"
   EXTRA_LINK_FIX=""
   [ "$ABI" = "armeabi-v7a" ] && EXTRA_LINK_FIX="-Wl,--fix-cortex-a8"
 
   "$CXX" --sysroot="$TOOLCHAIN/sysroot" -shared -o "$OUT_SO" \
     -Wl,-soname,libAXFCore.so \
+    -Wl,--version-script="$BUILD_DIR/axfcore.map" \
     -Wl,--hash-style=sysv -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=65536 -Wl,-Bsymbolic \
     -Wl,--no-undefined -Wl,--gc-sections -Wl,--no-as-needed \
     -Wl,-Map,"$OUT_SO.map" -Wl,--cref \
+    "$EXPORT_OBJ" \
     -Wl,--whole-archive  "${FF_A[@]}"  -Wl,--no-whole-archive \
     "${THIRD_A[@]}" \
     -llog -landroid -ldl -lmediandk -lm -lz \

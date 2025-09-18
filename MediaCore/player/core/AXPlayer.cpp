@@ -6,6 +6,10 @@
 #include <android/native_window.h>
 #include <chrono>
 #include <thread>
+#include <jni.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
 
 #define AXLOGI(...) __android_log_print(ANDROID_LOG_INFO,  "AXPlayer", __VA_ARGS__)
 #define AXLOGE(...) __android_log_print(ANDROID_LOG_ERROR, "AXPlayer", __VA_ARGS__)
@@ -15,6 +19,37 @@ static inline int64_t nowMs() {
     using namespace std::chrono;
     return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
 }
+// ★ 实现静态 JavaVM 保存
+// 1) 定义静态成员
+JavaVM* AXPlayer::sVm = nullptr;
+
+// 2) 提供静态方法实现
+void AXPlayer::SetJavaVM(JavaVM* vm) {
+    AXPlayer::sVm = vm;
+}
+JavaVM* AXPlayer::GetJavaVM() {
+    return AXPlayer::sVm;
+}
+
+// 3) 线程作用域：进入线程时 attach，退出时 detach
+struct JniThreadScope {
+    bool attached = false;
+    JNIEnv* env = nullptr;
+    JniThreadScope() {
+        JavaVM* vm = AXPlayer::GetJavaVM();   // ★ 改：通过 getter 访问
+        if (vm && vm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
+            if (vm->AttachCurrentThread(&env, nullptr) == JNI_OK) {
+                attached = true;
+            }
+        }
+    }
+    ~JniThreadScope() {
+        JavaVM* vm = AXPlayer::GetJavaVM();   // ★ 改：通过 getter 访问
+        if (attached && vm) {
+            vm->DetachCurrentThread();
+        }
+    }
+};
 
 AXPlayer::AXPlayer(std::shared_ptr<AXPlayerCallback> cb) : cb_(std::move(cb)) {
     AXLOGI("AXPlayer ctor");
@@ -118,20 +153,42 @@ void AXPlayer::resetCodec_l(bool releaseExtractor) {
     videoTrackIndex_ = -1;
 }
 
+static inline bool is_abs_local_path(const std::string& s) {
+    return !s.empty() && s[0] == '/';
+}
+
 bool AXPlayer::setupExtractor_l() {
     resetCodec_l(true);
 
     extractor_ = AMediaExtractor_new();
     if (!extractor_) { postError(-100, -1, "AMediaExtractor_new failed"); return false; }
 
-    media_status_t r;
-    // 小步就地先做 URL/path 直开；Headers/ContentResolver 后续接入
-    r = AMediaExtractor_setDataSource(extractor_, source_.c_str());
+    media_status_t r = AMEDIA_ERROR_UNKNOWN;
+
+    if (is_abs_local_path(source_)) {
+        // ★ 本地绝对路径 → 用 FD 方式打开（对上层仍是“传路径”）
+        int fd = open(source_.c_str(), O_RDONLY | O_CLOEXEC);
+        if (fd < 0) {
+            postError(-101, errno, "open file failed");
+            return false;
+        }
+        struct stat st; memset(&st, 0, sizeof(st));
+        off64_t length = 0;
+        if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode)) length = (off64_t)st.st_size;
+
+        r = AMediaExtractor_setDataSourceFd(extractor_, fd, 0, length > 0 ? length : LONG_MAX);
+        close(fd);
+    } else {
+        // 仍保留原来的直开路径（如未来你要支持 asset 或别的）
+        r = AMediaExtractor_setDataSource(extractor_, source_.c_str());
+    }
+
     if (r != AMEDIA_OK) {
         postError(-101, r, "setDataSource failed");
         return false;
     }
 
+    // 下面保持你的原逻辑：枚举轨道、选择视频轨……
     const size_t trackCnt = AMediaExtractor_getTrackCount(extractor_);
     for (size_t i = 0; i < trackCnt; ++i) {
         AMediaFormat* fmt = AMediaExtractor_getTrackFormat(extractor_, i);
@@ -195,19 +252,17 @@ bool AXPlayer::setupVideoCodec_l() {
 }
 
 void AXPlayer::ioThreadLoop() {
+    JniThreadScope jscope;           // ★★★ 关键：确保这个线程是“Java 线程”
     AXLOGI("ioThreadLoop begin");
     if (!setupExtractor_l()) return;
     if (!setupVideoCodec_l()) return;
-
-    // 通知上层已准备好
     changeState(State::PREPARED);
-    if (!preparedNotified_.exchange(true) && cb_) {
-        cb_->onPrepared();
-    }
+    if (!preparedNotified_.exchange(true) && cb_) cb_->onPrepared();
     AXLOGI("ioThreadLoop prepared");
 }
 
 void AXPlayer::playThreadLoop() {
+    JniThreadScope jscope;
     AXLOGI("playThreadLoop begin");
     if (!vcodec_) { AXLOGW("no codec in playThread"); return; }
 

@@ -48,7 +48,6 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         if (mPlayer == null) {
             mPlayer = new AXMediaPlayer();
         }
-        mPlayer.setDisplay(binding.surfaceView.getHolder());
         mPlayer.setOnPreparedListener(new IAXPlayer.OnPreparedListener() {
             @Override
             public void onPrepared(IAXPlayer mp) {
@@ -71,6 +70,10 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
                 return false;
             }
         });
+
+        SurfaceHolder holder = binding.surfaceView.getHolder();
+        holder.addCallback(this);
+        holder.setKeepScreenOn(true); // 可选，防灭屏
     }
 
     private void pausePlay() {
@@ -82,7 +85,15 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
     private void startPlay() {
         isPrepared = false;
         if (mPlayer == null) return;
-        mPlayer.setDataSource(defaultUrl2);
+        SurfaceHolder holder = binding.surfaceView.getHolder();
+        android.view.Surface s = holder.getSurface();
+        if (s == null || !s.isValid()) {
+            Log.w("AXP", "Surface not ready yet, wait for surfaceCreated()");
+            // 可以选择暂存一个 pending 标志，等 surfaceCreated 再开播
+            return;
+        }
+        mPlayer.setDisplay(holder);   // ★ 确保先下发 Surface
+        mPlayer.setDataSource(defaultUrl);
         mPlayer.prepare();
     }
 
@@ -98,7 +109,9 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
 
     @Override
     public void surfaceCreated(@NonNull SurfaceHolder holder) {
-
+        if (mPlayer!=null){
+            mPlayer.setDisplay(holder);
+        }
     }
 
     @Override
@@ -108,6 +121,8 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
 
     @Override
     public void surfaceDestroyed(@NonNull SurfaceHolder holder) {
-        mPlayer.setDisplay(null);
+        if (mPlayer!=null){
+            mPlayer.setDisplay(null);
+        }
     }
 }

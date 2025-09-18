@@ -113,6 +113,7 @@ target_link_libraries(AXPlayer
         ${glesv3-lib}
         ${jnigfx-lib}
         ${mediandk-lib}
+        ${dl-lib}
 )
 
 set(CMAKE_SHARED_LINKER_FLAGS

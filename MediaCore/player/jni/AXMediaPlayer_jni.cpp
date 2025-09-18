@@ -8,7 +8,8 @@
 #include <map>
 #include <memory>
 #include <mutex>
-//#include <libavcodec/jni.h>
+extern "C" int axf_av_jni_set_java_vm(JavaVM* vm);
+
 
 #include "../include/AXPlayer.h" // C++内核头（相对路径按你的仓库结构）
 
@@ -456,6 +457,9 @@ jint JNI_OnLoad(JavaVM* vm, void*) {
         return JNI_ERR;
     }
 //    av_jni_set_java_vm(vm, nullptr);
+//    TrySetFFmpegJavaVM(vm);
+    axf_av_jni_set_java_vm(vm);
+    AXPlayer::SetJavaVM(vm);
     ALOGI("JNI_OnLoad OK");
     return JNI_VERSION_1_6;
 }
