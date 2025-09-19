@@ -32,8 +32,11 @@ static inline int64_t nowMs() {
 
 // ===== JavaVM 线程附着工具 =====
 JavaVM* AXPlayer::sVm = nullptr;
-void AXPlayer::SetJavaVM(JavaVM* vm) { AXPlayer::sVm = vm; }
-JavaVM* AXPlayer::GetJavaVM()        { return AXPlayer::sVm; }
+void AXPlayer::SetJavaVM(JavaVM* vm) {
+    AXPlayer::sVm = vm;
+    AXAudioRenderer::setJavaVM(vm);
+}
+JavaVM* AXPlayer::GetJavaVM() { return AXPlayer::sVm; }
 
 struct JniThreadScope {
     bool attached = false;
@@ -160,6 +163,7 @@ void AXPlayer::start() {
             clock_->setSpeed(speed_);
             clock_->pause(false);
         }
+        if (aRen_)  aRen_->pause(false);
         if (!playThread_.joinable())
             playThread_ = std::thread(&AXPlayer::playThreadLoop, this);
         changeState(State::PLAYING);
@@ -173,6 +177,7 @@ void AXPlayer::pause() {
     AX_LOGI("pause");
     playing_.store(false);
     if (clock_) clock_->pause(true);
+    if (aRen_)  aRen_->pause(true);
     changeState(State::PAUSED);
 }
 
@@ -209,14 +214,26 @@ void AXPlayer::seekTo(int64_t msec) {
         clock_->setSpeed(sp);
         clock_->pause(wasPaused);
     }
+    if (aRen_) {
+        aRen_->release();
+        aRen_->init();
+        if (playing_.load()) aRen_->start();
+    }
     positionMs_.store(msec);
 }
 
 bool AXPlayer::isPlaying() { return playing_.load(); }
-void AXPlayer::setSpeed(float speed) { speed_ = speed; if (clock_) clock_->setSpeed(speed); }
+void AXPlayer::setSpeed(float speed) {
+    speed_ = speed;
+    if (clock_) clock_->setSpeed(speed);
+    if (aRen_)       aRen_->setSpeed(speed);
+}
 int64_t AXPlayer::getCurrentPositionMs() { return positionMs_.load(); }
 int64_t AXPlayer::getDurationMs() { return durationMs_; }
-void AXPlayer::setVolume(float l, float r) { volL_ = l; volR_ = r; /* TODO: 传给音频渲染 */ }
+void AXPlayer::setVolume(float l, float r) {
+    volL_ = l; volR_ = r;
+    if (aRen_) aRen_->setVolume(l, r);
+}
 int AXPlayer::getVideoWidth() { return videoW_; }
 int AXPlayer::getVideoHeight() { return videoH_; }
 int AXPlayer::getVideoSarNum() { return sarNum_; }
@@ -313,30 +330,19 @@ void AXPlayer::ioThreadLoop() {
     }
 
     vRen_.reset(new AXVideoRenderer());
-    aRen_.reset(new AXAudioRenderer());
     if (window_ && !vRen_->init(window_, videoW_, videoH_, sarNum_, sarDen_)) {
 //        notifyError(AXERR_RENDER, -1, "video renderer init failed");
         AX_LOGE("video renderer init failed");
         // 不中断：允许纯音频播放
     }
-    if (aDec_ && aDec_->ctx()) {
-        // 统一使用 nb_channels；拿不到则兜底 2
-        int realCh = 0;
-        if (aDec_->ctx()->ch_layout.nb_channels > 0) {
-            realCh = aDec_->ctx()->ch_layout.nb_channels;
-        }
-        if (realCh <= 0 && demux_ && aStreamIdx_ >= 0) {
-            AVStream* ast = demux_->fmt()->streams[aStreamIdx_];
-            if (ast && ast->codecpar && ast->codecpar->ch_layout.nb_channels > 0) {
-                realCh = ast->codecpar->ch_layout.nb_channels;
-            }
-        }
-        if (realCh <= 0) realCh = 2;
-
-        if (!aRen_->init(aDec_->ctx()->sample_rate, realCh, aDec_->ctx()->sample_fmt)) {
+    aRen_.reset(new AXAudioRenderer());
+    if (aDec_) {
+        aRen_->setFrameQueue(aFrmQ_.get());
+        aRen_->setTimeBase(aDec_->timeBase());
+        aRen_->setSpeed(speed_);
+        aRen_->setVolume(volL_, volR_);
+        if (!aRen_->init()) {
             AX_LOGW("audio renderer init failed");
-        } else {
-            aRen_->setTimeBase(aDec_->timeBase()); // 让音频渲染器知道帧的时间基
         }
     }
 
@@ -365,17 +371,34 @@ void AXPlayer::playThreadLoop() {
     JniThreadScope jscope;
     AX_LOGI("playThread start");
 
-    // === 等待 prepared：用谓词循环，支持被 abort_ 打断 ===
+    // === 等待 prepared：支持被 abort_ 打断 ===
     {
         std::unique_lock<std::mutex> lk(prepMtx_);
-        cvReady_.wait(lk, [this]{
-            return abort_.load() || prepared_.load();
-        });
+        cvReady_.wait(lk, [this]{ return abort_.load() || prepared_.load(); });
     }
-    if (abort_.load()) { AX_LOGI("playThread exit early (aborted before prepared)"); return; }
+    if (abort_.load()) {
+        AX_LOGI("playThread exit early (aborted before prepared)");
+        return;
+    }
 
-    bool  completedNotified = false;
-    int64_t lastBufCbMs     = 0;  // 上次缓冲回调时间（ms）
+    // === 渲染器一次性绑定帧队列/时间基（避免循环内重复设置） ===
+    if (vRen_) {
+        vRen_->setFrameQueue(vFrmQ_.get());             // ★ 必须给视频渲染器队列
+        if (vDec_) vRen_->setTimeBase(vDec_->timeBase());
+    }
+    if (aRen_) {
+        aRen_->setFrameQueue(aFrmQ_.get());
+        if (aDec_) aRen_->setTimeBase(aDec_->timeBase());
+    }
+
+    // 确保 clock_ 存在
+    if (!clock_) {
+        clock_.reset(new AXClock());
+        clock_->setSpeed(speed_);
+    }
+
+    bool    completedNotified = false;
+    int64_t lastBufCbMs       = 0;  // 上次缓冲回调时间（ms）
 
     while (!abort_.load()) {
         if (!playing_.load()) {
@@ -383,37 +406,27 @@ void AXPlayer::playThreadLoop() {
             continue;
         }
 
-        // ==== 主时钟选择：优先音频；无音频则用外部时钟 ====
-        // 确保 clock_ 存在
-        if (!clock_) {
-            clock_.reset(new AXClock());
-            clock_->setSpeed(speed_);
-        }
-
+        // ==== 主时钟选择：优先用“已到达DAC”的音频时钟 ====
         int64_t masterUs = 0;
-        // 做快照，避免并发 reset() / release()
-        AXAudioRenderer* aRen = aRen_.get();
-        AXVideoRenderer* vRen = vRen_.get();
+        // 用 auto* 避免命名空间拼写问题
+        auto* aRen = aRen_.get();
+        auto* vRen = vRen_.get();
 
         if (aRen) {
-            const int64_t audioPlayedUs = aRen->lastRenderedPtsUs();
-            const bool audioClockValid  = (audioPlayedUs >= 0); // ★ 允许 0
-
-            if (audioClockValid) {
-                const float sp       = speed_;
-                const bool  wasPause = !playing_.load();
-                const int64_t curUs  = clock_->ptsUs();
-
-                // 仅当偏差明显才对齐，避免抖动（>5ms）
+            const int64_t audioPlayedUs = aRen->lastRenderedPtsUs();   // -1 表示还没基准
+            if (audioPlayedUs >= 0) {
+                const int64_t curUs = clock_->ptsUs();
+                // 对齐阈值 5ms，避免抖动
                 if (std::llabs(audioPlayedUs - curUs) > 5000) {
+                    const float sp       = speed_;
+                    const bool  wasPause = !playing_.load();
                     clock_->reset(audioPlayedUs);
                     clock_->setSpeed(sp);
                     clock_->pause(wasPause);
-                    // AX_LOGI("[clk] anchor audio pts=%lldus -> cur=%lldus", (long long)audioPlayedUs, (long long)curUs);
                 }
                 masterUs = clock_->ptsUs();
             } else {
-                // 音频未就绪：外部时钟自然推进
+                // 音频未就绪：先用外部时钟
                 masterUs = clock_->ptsUs();
             }
         } else {
@@ -424,14 +437,8 @@ void AXPlayer::playThreadLoop() {
         positionMs_.store(masterUs / 1000);
 
         // ==== 渲染 ====
-        if (vRen) {
-            vRen->setFrameQueue(vFrmQ_.get());
-            vRen->drawLoopOnce(masterUs);
-        }
-        if (aRen) {
-            aRen->setFrameQueue(aFrmQ_.get());
-            aRen->renderOnce(masterUs);
-        }
+        if (vRen) vRen->drawLoopOnce(masterUs);
+        if (aRen) aRen->renderOnce(masterUs);
 
         // ==== 缓冲进度：每 500ms 回调一次 ====
         const int64_t now = nowMs();

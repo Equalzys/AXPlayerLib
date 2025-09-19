@@ -117,19 +117,49 @@ bool AXVideoRenderer::init(ANativeWindow* win, int w, int h, int sarNum, int sar
 void AXVideoRenderer::release() {
     std::lock_guard<std::mutex> lk(wMtx_);
 
-    if (pending_) {
-        av_frame_free(&pending_);
+    if (pending_) { av_frame_free(&pending_); pending_ = nullptr; }
+
+    if (display_ != EGL_NO_DISPLAY) {
+        EGLSurface target = surface_;
+        bool madeCurrent = false;
+
+        if (context_ != EGL_NO_CONTEXT) {
+            if (target != EGL_NO_SURFACE) {
+                madeCurrent = eglMakeCurrent(display_, target, target, context_) == EGL_TRUE;
+            } else {
+                // surface 已无效：创建 1x1 pbuffer 临时 surface
+                EGLint pbAttr[] = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE};
+                EGLSurface pbuf = eglCreatePbufferSurface(display_, config_, pbAttr);
+                if (pbuf != EGL_NO_SURFACE) {
+                    madeCurrent = eglMakeCurrent(display_, pbuf, pbuf, context_) == EGL_TRUE;
+                    // 删除 GL 资源后销毁 pbuffer（见下）
+                    target = pbuf;
+                }
+            }
+
+            if (madeCurrent) {
+                destroyGLObjects_(); // glDeleteTextures/VBO/Program...
+                eglMakeCurrent(display_, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+            } else {
+                AX_LOGW("GL objects not deleted due to no current context");
+            }
+        }
+
+        // 销毁 surface/context/display（注意 pbuffer 的收尾）
+        if (target != EGL_NO_SURFACE) eglDestroySurface(display_, target);
+        if (surface_ != EGL_NO_SURFACE && surface_ != target) eglDestroySurface(display_, surface_);
+        if (context_ != EGL_NO_CONTEXT) eglDestroyContext(display_, context_);
+        eglTerminate(display_);
     }
 
-    destroyGLObjects_(); // 先销毁 GL 资源（program/vao/vbo/texture）
+    display_ = EGL_NO_DISPLAY;
+    surface_ = EGL_NO_SURFACE;
+    context_ = EGL_NO_CONTEXT;
+    config_  = nullptr;
 
-    destroyEGL_();       // 再销毁 EGL surface/context/display
-
-    if (win_) {
-        ANativeWindow_release(win_);
-        win_ = nullptr;
-    }
+    prog_ = texY_ = texU_ = texV_ = vao_ = vbo_ = 0;
     lastWinW_ = lastWinH_ = 0;
+    win_ = nullptr;
 }
 
 bool AXVideoRenderer::ensureEGL_() {

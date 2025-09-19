@@ -8,7 +8,7 @@
 #include <atomic>
 #include "AXQueues.h"
 
-#define AX_LOG_TAG "AXQueues"
+#define AX_LOG_TAG "AXDemuxer"
 #include "AXLog.h"
 
 extern "C" {

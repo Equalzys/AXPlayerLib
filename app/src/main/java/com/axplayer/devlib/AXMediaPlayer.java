@@ -91,18 +91,26 @@ public class AXMediaPlayer implements IAXPlayer, SurfaceHolder.Callback {
 
     @Override
     public void release() {
-        if (!released.compareAndSet(false, true)) return;
-        if (mHolder != null) {
-            mHolder.removeCallback(this);
-            mHolder = null;
-        }
-        if (mSurface != null) {
-            try {
-                mSurface.release();
-            } catch (Throwable ignored) {}
+        try {
+            pause();                 // 停止时钟推进
+            setDisplay(null);        // 先把窗口解绑，便于 EGL 提前安全释放
+            if (!released.compareAndSet(false, true)) return;
+            if (mHolder != null) {
+                mHolder.removeCallback(this);
+                mHolder = null;
+            }
+            if (mSurface != null) {
+                try {
+                    mSurface.release();
+                } catch (Throwable ignored) {}
+            }
+            nativeRelease(mNativeCtx);
+        } finally {
+            // 置空引用，防止后续误调用
             mSurface = null;
+            mNativeCtx = 0;
         }
-        nativeRelease(mNativeCtx);
+
         mNativeCtx = 0;
     }
 

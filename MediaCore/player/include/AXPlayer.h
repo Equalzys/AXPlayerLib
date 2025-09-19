@@ -12,6 +12,7 @@
 #include <android/native_window.h>
 #include <jni.h>
 #include "AXQueues.h"
+#include "AXAudioRenderer.h"
 
 #define AX_LOG_TAG "AXPlayer"
 #include "AXLog.h"
@@ -23,7 +24,6 @@ extern "C" {
 class AXDemuxer;
 class AXDecoder;
 class AXVideoRenderer;
-class AXAudioRenderer;
 class AXClock;
 
 // 上层回调接口（与 AXMediaPlayer.java 对应）

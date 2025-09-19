@@ -8,8 +8,9 @@
 #include "AXQueues.h"
 #include <thread>
 
-#define AX_LOG_TAG "AXDecoder"
 #include "AXLog.h"
+#define AX_LOG_TAG "AXDecoder"
+
 
 extern "C" {
 #include <libavcodec/avcodec.h>

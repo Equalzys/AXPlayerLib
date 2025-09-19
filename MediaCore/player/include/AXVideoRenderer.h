@@ -8,8 +8,8 @@
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
 
-#define AX_LOG_TAG "AXVideoRenderer"
 #include "AXLog.h"
+#define AX_LOG_TAG "AXVideoRenderer"
 
 extern "C" {
 #include <libavutil/avutil.h>
@@ -55,7 +55,6 @@ private:
     FrameQueue*     fQ_{nullptr};
     ANativeWindow*  win_{nullptr};
     std::mutex      wMtx_;
-
     // EGL/GLES 资源
     EGLDisplay display_{EGL_NO_DISPLAY};
     EGLSurface surface_{EGL_NO_SURFACE};
